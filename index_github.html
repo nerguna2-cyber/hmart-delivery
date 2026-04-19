@@ -41,12 +41,13 @@ html{width:100%;overflow-x:hidden}
 .status-progress{display:inline-block;background:#1D4ED8;color:#fff;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:700;letter-spacing:0.05em}
 .status-done{display:inline-block;background:#059669;color:#fff;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:700;letter-spacing:0.05em}
 .biz-tag{background:#D1FAE5;color:#065F46;font-size:11px;font-weight:600;padding:1px 7px;border-radius:10px}
-.personal-tag{background:#EDE9FE;color:#6D28D9;font-size:11px;font-weight:600;padding:1px 7px;border-radius:10px}
+.personal-tag{background:#FEF3C7;color:#92400E;font-size:11px;font-weight:600;padding:1px 7px;border-radius:10px}
 .empty{text-align:center;padding:24px;color:#94A3B8;font-size:14px}
 .section-label{font-size:11px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:0.06em;margin:14px 0 8px}
 .divider{height:1px;background:#F1F5F9;margin:12px 0}
 .notif-dot{width:8px;height:8px;background:#EF4444;border-radius:50%;display:inline-block;animation:pulse 1.5s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 .back-btn{background:rgba(255,255,255,0.2);border:none;color:#fff;padding:8px 14px;border-radius:6px;font-size:13px;cursor:pointer}
 .btn-sm{padding:7px 13px;font-size:12px;background:transparent;border:1px solid #D1D5DB;border-radius:6px;color:#374151;cursor:pointer}
 
@@ -65,7 +66,7 @@ html{width:100%;overflow-x:hidden}
 .info-box{background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:10px 12px;font-size:14px;color:#1E40AF;margin-bottom:12px}
 .order-preview{background:#F8FAFC;border-radius:8px;padding:12px;margin-bottom:8px}
 .order-biz{border-left:4px solid #059669;background:#F0FDF4}
-.order-personal{border-left:4px solid #7C3AED;background:#F5F3FF}
+.order-personal{border-left:4px solid #D97706;background:#FFFBEB}
 .del-card{background:#fff;border:2px solid #E2E8F0;border-radius:12px;padding:16px;margin-bottom:10px}
 .del-card.active{border-color:#3B82F6;background:#EFF6FF;box-shadow:0 0 0 3px rgba(59,130,246,0.3)}
 .del-card.active .del-icon-active{animation:activeGlow 1.2s ease-in-out infinite}
@@ -111,7 +112,7 @@ html{width:100%;overflow-x:hidden}
 .stat-lbl{font-size:10px;color:#94A3B8;margin-top:2px;text-transform:uppercase}
 .order-item{background:#fff;border:1px solid #E2E8F0;border-radius:9px;padding:12px 14px;margin-bottom:8px}
 .order-item-biz{border-left:4px solid #059669;background:#F0FDF4}
-.order-item-personal{border-left:4px solid #7C3AED;background:#F5F3FF}
+.order-item-personal{border-left:4px solid #D97706;background:#FFFBEB}
 .order-item-progress{border-left:4px solid #93C5FD;background:#EFF6FF}
 .order-item-done{border-left:4px solid #6EE7B7;background:#F0FDF4;opacity:0.8}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -572,7 +573,7 @@ function showNetworkStatus(msg, color) {
               <label>Notes (optional)</label>
               <input type="text" id="special-notes" placeholder="e.g. 3 boxes, Gate 3, overnight...">
             </div>
-            <button class="btn-depart" onclick="specialDepart()" id="special-depart-btn" style="background:#F59E0B">🚨 Emergency Depart</button>
+            <button class="btn-depart" onclick="specialDepart()" id="special-depart-btn" style="background:#F59E0B">🚨 Special / Emergency Depart</button>
           </div>
         </div>
         <!-- Active special run -->
@@ -1072,6 +1073,11 @@ function showDrvSched(id) {
   var bStart = (actualBreaks && actualBreaks[d]) || sc.breakStart;
   var bMins  = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
   var onBreak = bMins > -1 && nowMins >= bMins && nowMins < bMins+60;
+  var onRoad  = false;
+  // Check if driver is on road from cached data
+  if(typeof allOrders !== 'undefined') {
+    // use cached run data if available
+  }
   var statusIcon = onBreak ? '☕ On Break' : '✓ Available';
   var statusColor = onBreak ? '#92400E' : '#065F46';
   var statusBg    = onBreak ? '#FEF3C7' : '#F0FDF4';
@@ -1278,6 +1284,30 @@ async function drvSelectName() {
   var specSec = document.getElementById('drv-special-section');
   if(specSec) specSec.style.display = 'block';
 
+  // Check if THIS driver has an active special run stored
+  var spKey = 'hmart_special_run_' + driver;
+  var spData = null;
+  try { var spRaw = localStorage.getItem(spKey); if(spRaw) spData = JSON.parse(spRaw); } catch(e) {}
+  if(spData && spData.active) {
+    specialRunActive = true;
+    var infoEl = document.getElementById('special-run-info');
+    if(infoEl) infoEl.innerHTML = '🚨 <strong>' + spData.runType + '</strong> | ' + spData.vehicle + ' | Dep: <strong>' + spData.depKm + ' km</strong>';
+    var form = document.getElementById('special-run-form');
+    var active = document.getElementById('special-active');
+    var toggleBtn = document.getElementById('special-toggle-btn');
+    if(form) form.style.display = 'none';
+    if(active) active.style.display = 'block';
+    if(toggleBtn) toggleBtn.style.display = 'none';
+  } else {
+    specialRunActive = false;
+    var form2 = document.getElementById('special-run-form');
+    var active2 = document.getElementById('special-active');
+    var toggleBtn2 = document.getElementById('special-toggle-btn');
+    if(form2) form2.style.display = 'none';
+    if(active2) active2.style.display = 'none';
+    if(toggleBtn2) { toggleBtn2.style.display = 'block'; toggleBtn2.textContent = '+ Open'; }
+  }
+
   // Filter normal codriver - remove self
   var cSel = document.getElementById('drv-codrv');
   Array.from(cSel.options).forEach(function(opt) {
@@ -1289,6 +1319,9 @@ async function drvSelectName() {
 }
 
 async function drvLoadData() {
+  // Show loading state immediately
+  var preview = document.getElementById('drv-orders-preview');
+  if(preview) preview.innerHTML = '<div style="text-align:center;padding:20px;color:#64748B"><div style="font-size:28px;animation:spin 1s linear infinite;display:inline-block">⟳</div><div style="margin-top:8px;font-size:13px">Loading orders...</div></div>';
   try {
     // Clear cache for fresh data on driver screen
     delete _cache['getOfficeData{}'];
@@ -1300,6 +1333,22 @@ async function drvLoadData() {
     var activeRuns   = runs.filter(function(r) { return r.status === 'IN PROGRESS'; });
     var busyVehicles = activeRuns.map(function(r) { return r.vehicle; });
     var busyPlates   = activeRuns.map(function(r) { return r.plate; });
+
+    // Filter special run vehicle select too
+    var spVSel = document.getElementById('special-vehicle');
+    if(spVSel) {
+      Array.from(spVSel.options).forEach(function(opt) {
+        if(!opt.value) return;
+        var optText = opt.text.replace(' [IN USE]','');
+        var optName  = optText.split(' (')[0].trim();
+        var optPlate = (optText.match(/\(([^)]+)\)/) || [])[1] || '';
+        var isBusy = busyVehicles.some(function(v) { return v && v.trim() === optName; }) ||
+                     busyPlates.some(function(p) { return p && optPlate && p.trim() === optPlate.trim(); });
+        opt.disabled = isBusy;
+        opt.text = optText + (isBusy ? ' [IN USE]' : '');
+        opt.style.color = isBusy ? '#DC2626' : '';
+      });
+    }
 
     var vSel = document.getElementById('drv-vehicle');
     if(vSel) {
@@ -1629,14 +1678,24 @@ async function loadLive() {
       var bStart = actualB || sched.breakStart;
       var bsMins = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
       var onBreak = !onRoad && bsMins > -1 && nowMins >= bsMins && nowMins < bsMins + 60;
+      var beMins = -1; // kept for reference
       var statusColor = onRoad ? '#1D4ED8' : onBreak ? '#F59E0B' : '#059669';
       var statusText  = onRoad ? '🚚 On Road' : onBreak ? '☕ On Break' : '✓ Available';
       var activeRun   = onRoad ? active.find(function(r) { return r.driver === d; }) : null;
+      // Check if this driver is a codriver on a run
+      var asCoDriver = active.find(function(r) { return r.coDriver === d; });
+      if(!onRoad && asCoDriver) {
+        onRoad = true;
+        statusColor = '#7C3AED';
+        statusText = '🚗 Co-Driver';
+      }
       html += '<div style="background:' + statusColor + ';border-radius:8px;padding:10px 12px">' +
         '<div style="font-size:13px;font-weight:700;color:#fff">' + d + '</div>' +
         '<div style="font-size:12px;color:#fff;opacity:0.9;margin-top:3px">' + statusText + '</div>' +
         (onRoad && activeRun ? '<div style="font-size:10px;color:#fff;opacity:0.8;margin-top:2px">📍 ' + (activeRun.destination || 'Delivering') + '</div>' : '') +
-        (onBreak ? '<div style="font-size:10px;color:#fff;opacity:0.8;margin-top:2px">' + sched.breakStart + ' — ' + sched.breakEnd + '</div>' : '') +
+        (onRoad && activeRun && activeRun.coDriver ? '<div style="font-size:10px;color:#fff;opacity:0.8;margin-top:2px">👥 w/ ' + activeRun.coDriver + '</div>' : '') +
+        (onRoad && asCoDriver ? '<div style="font-size:10px;color:#fff;opacity:0.8;margin-top:2px">📍 ' + (asCoDriver.destination||'') + ' (w/ ' + asCoDriver.driver + ')</div>' : '') +
+        (onBreak ? '<div style="font-size:10px;color:#fff;opacity:0.8;margin-top:2px">Break: ' + (bStart||'') + '</div>' : '') +
       '</div>';
     });
     html += '</div>';
@@ -1935,10 +1994,12 @@ function renderReport(data) {
 function printReport(){window.print();}
 
 // ---- ATTENDANCE ----
+// driverSchedules: { ROMEL: { clockin:'08:00', breakStart:'12:00', clockout:'17:00', notes:'' }, ... }
 var driverSchedules = {};
-var actualBreaks = {};
-var actualClockouts = {};
-var overtimeBalance = {};
+var actualBreaks = {}; // { ROMEL: '13:15' } — actual break start today
+
+var actualClockouts = {};   // { ROMEL: '18:20' }
+var overtimeBalance = {};   // { ROMEL: 20 } minutes
 
 (function(){
   try {
@@ -1958,17 +2019,14 @@ function getDriverSched(driver) {
   return driverSchedules[driver] || { clockin:'08:00', breakStart:'12:00', clockout:'17:00', notes:'' };
 }
 
-function isOfficeHours() {
-  var h = new Date().getHours();
-  return h >= 7 && h < 20;
-}
-
 function isOnBreakNow(driver) {
   var now = new Date();
   var nowMins = now.getHours()*60 + now.getMinutes();
+  // Use actual break if recorded, else scheduled
   var bStart = actualBreaks[driver] || getDriverSched(driver).breakStart;
   if(!bStart) return false;
   var bMins = parseInt(bStart.split(':')[0])*60 + parseInt(bStart.split(':')[1]);
+  // Break assumed to be 1 hour
   return nowMins >= bMins && nowMins < bMins + 60;
 }
 
@@ -1995,6 +2053,7 @@ function buildAttDriverTable() {
     }).join('') +
     '</tbody></table></div>';
 
+  // populate break driver select
   var sel = document.getElementById('att-break-driver');
   if(sel) {
     sel.innerHTML = '<option value="">-- Select --</option>' +
@@ -2040,11 +2099,12 @@ function saveActualTimes() {
   if(clockout) {
     actualClockouts[driver] = clockout;
     try { localStorage.setItem('hmart_actual_clockouts_' + attDate, JSON.stringify(actualClockouts)); } catch(e) {}
+    // Calculate overtime
     var sched = getDriverSched(driver);
     if(sched.clockout) {
       var schedMins = parseInt(sched.clockout.split(':')[0])*60 + parseInt(sched.clockout.split(':')[1]);
       var actMins   = parseInt(clockout.split(':')[0])*60 + parseInt(clockout.split(':')[1]);
-      var diff = actMins - schedMins;
+      var diff = actMins - schedMins; // positive = overtime, negative = undertime
       if(!overtimeBalance[driver]) overtimeBalance[driver] = 0;
       overtimeBalance[driver] += diff;
       try { localStorage.setItem('hmart_overtime_balance', JSON.stringify(overtimeBalance)); } catch(e) {}
@@ -2063,7 +2123,6 @@ function renderOvertimeList() {
   var el = document.getElementById('overtime-list');
   if(!el) return;
   var hasData = false;
-  var C_GREEN = '#059669';
   var html = DRIVERS.map(function(d) {
     var bal = overtimeBalance[d] || 0;
     if(bal === 0) return '';
@@ -2083,13 +2142,20 @@ function renderOvertimeList() {
       '</div>' +
     '</div>';
   }).join('');
+  var C_GREEN = '#059669';
   if(!hasData) el.innerHTML = '<div class="empty" style="font-size:12px">No overtime/undertime recorded</div>';
   else el.innerHTML = html;
 }
 
 function useOTCredit(driver, apply) {
-  if(!confirm(apply ? driver + ': Apply overtime credit as undertime today?' : 'Clear ' + driver + '\'s balance?')) return;
-  overtimeBalance[driver] = 0;
+  // apply=true: driver uses their credit (reduce balance)
+  // apply=false: clear balance
+  if(!confirm(apply ? driver + ': Apply overtime credit as undertime today?' : 'Clear ' + driver + ''s balance?')) return;
+  if(!apply) {
+    overtimeBalance[driver] = 0;
+  }
+  // If applying, it's recorded as used - balance clears
+  if(apply) overtimeBalance[driver] = 0;
   try { localStorage.setItem('hmart_overtime_balance', JSON.stringify(overtimeBalance)); } catch(e) {}
   renderOvertimeList();
   toast('toast-att', driver + ' balance updated', true);
@@ -2107,9 +2173,11 @@ function calcHours(start, end) {
 function loadAttendance() {
   buildAttDriverTable();
 
+  // Init date input to today if empty
   var dateEl = document.getElementById('att-date');
   if(dateEl) {
     if(!dateEl.value) dateEl.value = new Date().toISOString().slice(0,10);
+    // Load actual times for selected date
     var selDate = dateEl.value;
     try {
       var ab = localStorage.getItem('hmart_actual_breaks_' + selDate);
@@ -2129,9 +2197,11 @@ function loadAttendance() {
     var bStart = actualB || sc.breakStart;
     var bMins = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
     var onBreak = bMins > -1 && nowMins >= bMins && nowMins < bMins + 60;
+    var noBreakRecorded = !actualB && !sc.breakStart;
     var statusColor = onBreak ? '#F59E0B' : '#059669';
     var statusText  = onBreak ? '☕ On Break' : '✓ Available';
 
+    // Warning: if scheduled break was > 30min ago and no actual break recorded
     var schedBMins = sc.breakStart ? parseInt(sc.breakStart.split(':')[0])*60+parseInt(sc.breakStart.split(':')[1]) : -1;
     var breakOverdue = !actualB && schedBMins > -1 && nowMins > schedBMins + 30;
 
@@ -2176,7 +2246,19 @@ function printAttendance() {
   setTimeout(function() { document.getElementById('att-print-area').style.display = 'none'; }, 1000);
 }
 
-// ---- SPECIAL RUN ----
+setInterval(function(){
+  var liveTab=document.getElementById('tab-live');
+  if(liveTab&&liveTab.classList.contains('active')) loadLive();
+},30000);
+
+addFastRow();
+prefetchData().then(function() {
+  renderOrders();
+});
+loadOrders();
+</script>
+</body>
+</html>// ---- SPECIAL RUN ----
 var selectedSpecialType = '';
 var specialRunActive = false;
 
@@ -2231,7 +2313,7 @@ async function specialDepart() {
       destination: '🚨 ' + runType + (notes ? ' — ' + notes : ''),
       depKm: parseFloat(depKm), coDriver: codrv, orderIds: []
     });
-    btn.textContent = '🚨 Emergency Depart'; btn.disabled = false;
+    btn.textContent = '🚨 Special / Emergency Depart'; btn.disabled = false;
     if(r && r.success) {
       specialRunActive = true;
       var infoEl = document.getElementById('special-run-info');
@@ -2241,7 +2323,7 @@ async function specialDepart() {
       var toggleBtn = document.getElementById('special-toggle-btn');
       if(toggleBtn) toggleBtn.style.display = 'none';
     } else toast('drv-toast', 'Error departing', false);
-  } catch(e) { btn.textContent = '🚨 Emergency Depart'; btn.disabled = false; toast('drv-toast', 'Error: ' + e.message, false); }
+  } catch(e) { btn.textContent = '🚨 Special / Emergency Depart'; btn.disabled = false; toast('drv-toast', 'Error: ' + e.message, false); }
 }
 
 async function specialArrive() {
@@ -2256,6 +2338,7 @@ async function specialArrive() {
     if(r && r.success) {
       toast('drv-toast', 'Special run completed! +' + r.distance + ' km', true);
       specialRunActive = false;
+      try { localStorage.removeItem('hmart_special_run_' + curDriver); } catch(e2) {}
       setTimeout(function() {
         document.getElementById('special-active').style.display = 'none';
         document.getElementById('special-run-form').style.display = 'none';
@@ -2274,17 +2357,3 @@ async function specialArrive() {
     } else toast('drv-toast', (r && r.message) || 'Error', false);
   } catch(e) { btn.textContent = 'Complete Special Run ✓'; btn.disabled = false; toast('drv-toast', 'Error: ' + e.message, false); }
 }
-
-setInterval(function(){
-  var liveTab=document.getElementById('tab-live');
-  if(liveTab&&liveTab.classList.contains('active')) loadLive();
-},30000);
-
-addFastRow();
-prefetchData().then(function() {
-  renderOrders();
-});
-loadOrders();
-</script>
-</body>
-</html>
