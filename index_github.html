@@ -182,66 +182,100 @@ html{width:100%;overflow-x:hidden}
 <script>
 var API_URL = 'https://script.google.com/macros/s/AKfycbzmD1teXZs4WvT65y5B0oy_aH_bKUnqffgZBNQnAmNHESVxSfeWIIwlnSwGnjBP8N9SLg/exec';
 
-// API helpers — JSONP for GET (CORS-free), fetch for POST
-var _jsonpCbs = {};
+// ============================================================
+// OFFLINE QUEUE + CACHE SYSTEM
+// ============================================================
 var _jsonpId = 0;
+var _cache = {};           // in-memory cache for GET requests
+var _offlineQueue = [];    // pending POST actions when offline
+var _isOnline = navigator.onLine;
+var _syncing = false;
 
+// Monitor online/offline status
+window.addEventListener('online', function() {
+  _isOnline = true;
+  showNetworkStatus('Back online! Syncing...', 'green');
+  syncOfflineQueue();
+});
+window.addEventListener('offline', function() {
+  _isOnline = false;
+  showNetworkStatus('No signal — saving locally', 'red');
+});
+
+// Load offline queue from localStorage on startup
+(function() {
+  try {
+    var q = localStorage.getItem('hmart_queue');
+    if(q) _offlineQueue = JSON.parse(q);
+    if(_offlineQueue.length > 0) {
+      showNetworkStatus(_offlineQueue.length + ' pending action(s) — tap to sync', 'orange');
+    }
+  } catch(e) { _offlineQueue = []; }
+})();
+
+function saveQueue() {
+  try { localStorage.setItem('hmart_queue', JSON.stringify(_offlineQueue)); } catch(e) {}
+}
+
+async function syncOfflineQueue() {
+  if(_syncing || _offlineQueue.length === 0) return;
+  _syncing = true;
+  var synced = 0;
+  while(_offlineQueue.length > 0) {
+    var item = _offlineQueue[0];
+    try {
+      await apiPostDirect(item.action, item.data);
+      _offlineQueue.shift();
+      saveQueue();
+      synced++;
+    } catch(e) {
+      break; // still offline, stop trying
+    }
+  }
+  _syncing = false;
+  if(synced > 0) {
+    showNetworkStatus(synced + ' action(s) synced!', 'green');
+    // Reload data after sync
+    if(curDriver) drvLoadData();
+  }
+  if(_offlineQueue.length === 0) {
+    try { localStorage.removeItem('hmart_queue'); } catch(e) {}
+  }
+}
+
+// JSONP GET with cache
 function apiGet(action, params, retries) {
-  params = params || {}; retries = retries === undefined ? 3 : retries;
+  params = params || {}; retries = retries === undefined ? 2 : retries;
+  var cacheKey = action + JSON.stringify(params);
+
   return new Promise(function(resolve, reject) {
     var attempt = 0;
     function tryOnce() {
       attempt++;
-      var cbName = '_jsonp_' + (++_jsonpId);
+      var cbName = '_cb_' + (++_jsonpId);
       var url = API_URL + '?action=' + action + '&callback=' + cbName;
       Object.keys(params).forEach(function(k) { url += '&' + k + '=' + encodeURIComponent(params[k]); });
       var done = false;
       var timer = setTimeout(function() {
         if(done) return; done = true;
         delete window[cbName];
-        if(attempt < retries) { showNetworkStatus('Retrying... (' + attempt + '/' + retries + ')'); setTimeout(tryOnce, 1500 * attempt); }
-        else reject(new Error('Timeout'));
-      }, 10000);
+        if(attempt < retries) {
+          setTimeout(tryOnce, 1000);
+        } else {
+          // Return cached data if available
+          if(_cache[cacheKey]) {
+            showNetworkStatus('No signal — showing cached data', 'orange');
+            resolve(_cache[cacheKey]);
+          } else {
+            reject(new Error('No signal'));
+          }
+        }
+      }, 8000);
       window[cbName] = function(data) {
         if(done) return; done = true;
         clearTimeout(timer); delete window[cbName];
+        _cache[cacheKey] = data; // cache the result
         resolve(data);
-      };
-      var s = document.createElement('script');
-      s.src = url;
-      s.onerror = function() {
-        if(done) return; done = true;
-        clearTimeout(timer); delete window[cbName]; document.head.removeChild(s);
-        if(attempt < retries) { showNetworkStatus('Retrying... (' + attempt + '/' + retries + ')'); setTimeout(tryOnce, 1500 * attempt); }
-        else reject(new Error('Network error'));
-      };
-      document.head.appendChild(s);
-    }
-    tryOnce();
-  });
-}
-
-function apiPost(action, data, retries) {
-  retries = retries === undefined ? 3 : retries;
-  // Use JSONP for POST too — encode data in URL param
-  return new Promise(function(resolve, reject) {
-    var attempt = 0;
-    function tryOnce() {
-      attempt++;
-      var cbName = '_jsonp_' + (++_jsonpId);
-      var encoded = encodeURIComponent(JSON.stringify(data));
-      var url = API_URL + '?action=' + action + '&callback=' + cbName + '&body=' + encoded;
-      var done = false;
-      var timer = setTimeout(function() {
-        if(done) return; done = true;
-        delete window[cbName];
-        if(attempt < retries) { showNetworkStatus('Retrying... (' + attempt + '/' + retries + ')'); setTimeout(tryOnce, 1500 * attempt); }
-        else reject(new Error('Timeout'));
-      }, 12000);
-      window[cbName] = function(result) {
-        if(done) return; done = true;
-        clearTimeout(timer); delete window[cbName];
-        resolve(result);
       };
       var s = document.createElement('script');
       s.src = url;
@@ -249,13 +283,73 @@ function apiPost(action, data, retries) {
         if(done) return; done = true;
         clearTimeout(timer); delete window[cbName];
         if(s.parentNode) s.parentNode.removeChild(s);
-        if(attempt < retries) { showNetworkStatus('Retrying... (' + attempt + '/' + retries + ')'); setTimeout(tryOnce, 1500 * attempt); }
-        else reject(new Error('Network error'));
+        if(attempt < retries) {
+          setTimeout(tryOnce, 1000);
+        } else {
+          if(_cache[cacheKey]) {
+            showNetworkStatus('No signal — showing cached data', 'orange');
+            resolve(_cache[cacheKey]);
+          } else {
+            reject(new Error('No signal'));
+          }
+        }
       };
       document.head.appendChild(s);
     }
     tryOnce();
   });
+}
+
+// Direct JSONP POST (used for sync)
+function apiPostDirect(action, data) {
+  return new Promise(function(resolve, reject) {
+    var cbName = '_cb_' + (++_jsonpId);
+    var encoded = encodeURIComponent(JSON.stringify(data));
+    var url = API_URL + '?action=' + action + '&callback=' + cbName + '&body=' + encoded;
+    var done = false;
+    var timer = setTimeout(function() {
+      if(done) return; done = true;
+      delete window[cbName];
+      reject(new Error('Timeout'));
+    }, 12000);
+    window[cbName] = function(result) {
+      if(done) return; done = true;
+      clearTimeout(timer); delete window[cbName];
+      resolve(result);
+    };
+    var s = document.createElement('script');
+    s.src = url;
+    s.onerror = function() {
+      if(done) return; done = true;
+      clearTimeout(timer); delete window[cbName];
+      if(s.parentNode) s.parentNode.removeChild(s);
+      reject(new Error('Network error'));
+    };
+    document.head.appendChild(s);
+  });
+}
+
+// POST with offline queue fallback
+async function apiPost(action, data) {
+  if(!_isOnline) {
+    // Save to offline queue
+    _offlineQueue.push({ action: action, data: data, ts: Date.now() });
+    saveQueue();
+    showNetworkStatus('Saved locally — will sync when online', 'orange');
+    return { success: true, offline: true };
+  }
+  try {
+    var result = await apiPostDirect(action, data);
+    // Sync any queued items
+    if(_offlineQueue.length > 0) syncOfflineQueue();
+    return result;
+  } catch(e) {
+    // Connection failed — add to queue
+    _offlineQueue.push({ action: action, data: data, ts: Date.now() });
+    saveQueue();
+    showNetworkStatus('Saved locally — will sync when online', 'orange');
+    return { success: true, offline: true };
+  }
 }
 
 function fmtTime(val) {
@@ -275,13 +369,18 @@ function fmtTime(val) {
   return s;
 }
 
-function showNetworkStatus(msg) {
+function showNetworkStatus(msg, color) {
   var el = document.getElementById('network-status');
   if(!el) return;
   el.textContent = msg;
+  el.style.background = color === 'green' ? '#059669' : color === 'red' ? '#DC2626' : '#F59E0B';
   el.style.display = 'block';
   clearTimeout(el._timer);
-  el._timer = setTimeout(function() { el.style.display = 'none'; }, 4000);
+  if(color === 'green') {
+    el._timer = setTimeout(function() { el.style.display = 'none'; }, 3000);
+  }
+  // Add tap to sync if orange
+  el.onclick = color === 'orange' ? function() { syncOfflineQueue(); } : null;
 }
 </script>
 
@@ -948,6 +1047,8 @@ async function drvSelectName() {
 
 async function drvLoadData() {
   try {
+    // Clear cache for fresh data on driver screen
+    delete _cache['getOfficeData{}'];
     var data = await apiGet('getOfficeData');
     var orders = (data && data.orders) || [];
     var runs   = (data && data.runs)   || [];
