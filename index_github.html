@@ -36,6 +36,9 @@ html{width:100%;overflow-x:hidden}
 .badge-bank{background:#EFF6FF;color:#1E40AF;border:1px solid #93C5FD}
 .badge-gcash{background:#F5F3FF;color:#5B21B6;border:1px solid #C4B5FD}
 .badge-credit{background:#FEF2F2;color:#991B1B;border:1px solid #FECACA}
+.status-pending{display:inline-block;background:#FEF3C7;color:#92400E;border:2px solid #F59E0B;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:700;letter-spacing:0.05em}
+.status-progress{display:inline-block;background:#1D4ED8;color:#fff;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:700;letter-spacing:0.05em}
+.status-done{display:inline-block;background:#059669;color:#fff;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:700;letter-spacing:0.05em}
 .biz-tag{background:#D1FAE5;color:#065F46;font-size:11px;font-weight:600;padding:1px 7px;border-radius:10px}
 .personal-tag{background:#DBEAFE;color:#1E40AF;font-size:11px;font-weight:600;padding:1px 7px;border-radius:10px}
 .empty{text-align:center;padding:24px;color:#94A3B8;font-size:14px}
@@ -943,6 +946,9 @@ function renderOrders() {
         '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">' +
           '<span style="font-size:14px;font-weight:600">' + o.businessName + '</span>' +
           (o.invoiceNum ? '<span style="font-size:12px;font-weight:600;color:#059669;background:#D1FAE5;padding:1px 7px;border-radius:4px">' + o.invoiceNum + '</span>' : '') +
+          (status === 'PENDING' ? '<span class="status-pending">PENDING</span>' : '') +
+          (status === 'IN PROGRESS' ? '<span class="status-progress">▶ IN PROGRESS</span>' : '') +
+          (status === 'COMPLETED' ? '<span class="status-done">✓ DONE</span>' : '') +
           (isBiz ? '<span class="biz-tag">Business</span>' : '<span class="personal-tag">Personal</span>') +
           payBadge(o.payment || 'Cash') +
           (o.driver ? '<span style="background:#EFF6FF;color:#1F4E79;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;border:1px solid #BFDBFE">' + o.driver + '</span>' : '<span style="font-size:11px;color:#EF4444;font-weight:600">Unassigned</span>') +
@@ -1294,6 +1300,7 @@ async function loadLive() {
         html += '<div class="order-item ' + (o.invoiceNum ? 'order-item-biz' : 'order-item-personal') + '">' +
           '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
             '<span style="font-size:14px;font-weight:600">' + o.businessName + '</span>' +
+            '<span class="status-pending">PENDING</span>' +
             payBadge(o.payment||'Cash') +
             (o.driver ? '<span style="background:#EFF6FF;color:#1F4E79;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;border:1px solid #BFDBFE">' + o.driver + '</span>' : '<span style="font-size:11px;color:#EF4444;font-weight:600">Unassigned</span>') +
           '</div>' +
