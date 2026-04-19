@@ -172,8 +172,9 @@ html{width:100%;overflow-x:hidden}
 .ok-badge{background:#D1FAE5;color:#059669;font-size:11px;font-weight:600;padding:1px 6px;border-radius:4px}
 @media print{
   body *{visibility:hidden}
-  #print-area,#print-area *{visibility:visible}
+  #print-area,#print-area *,#att-print-area,#att-print-area *{visibility:visible}
   #print-area{position:fixed;top:0;left:0;width:100%;padding:20px}
+  #att-print-area{position:fixed;top:0;left:0;width:100%;padding:20px}
   .report-section{box-shadow:none;border:1px solid #E2E8F0;break-inside:avoid}
   button{display:none!important}
 }
@@ -514,6 +515,7 @@ function showNetworkStatus(msg, color) {
       <button class="nav-btn active" onclick="switchTab('orders')">Orders</button>
       <button class="nav-btn" onclick="switchTab('live')">Live Status</button>
       <button class="nav-btn" onclick="switchTab('vehicles')">Vehicles</button>
+      <button class="nav-btn" onclick="switchTab('attendance')">Attendance</button>
       <button class="nav-btn" onclick="switchTab('checklist')">Checklist</button>
       <button class="nav-btn" onclick="switchTab('fuel')">Fuel</button>
     </div>
@@ -579,6 +581,70 @@ function showNetworkStatus(msg, color) {
         <button class="btn-sm-off" onclick="loadVehicles()">Refresh</button>
       </div>
       <div id="veh-list"><div class="empty">Loading...</div></div>
+    </div>
+
+    <!-- ATTENDANCE TAB -->
+    <div id="tab-attendance" class="off-screen">
+      <div id="toast-att" class="toast"></div>
+      <div style="display:grid;grid-template-columns:360px 1fr;gap:20px">
+        <div>
+          <div class="off-card">
+            <div class="card-title">Default Daily Schedule</div>
+            <div class="row2">
+              <div class="off-field"><label>Clock In</label><input type="time" id="def-clockin" value="08:00"></div>
+              <div class="off-field"><label>Clock Out</label><input type="time" id="def-clockout" value="17:00"></div>
+            </div>
+            <div class="row2">
+              <div class="off-field"><label>Break Start</label><input type="time" id="def-break-start" value="12:00"></div>
+              <div class="off-field"><label>Break End</label><input type="time" id="def-break-end" value="13:00"></div>
+            </div>
+            <button class="btn-primary-off" style="margin-bottom:8px" onclick="saveDefaultSchedule()">Save Default Schedule</button>
+            <button onclick="printAttendance()" style="width:100%;padding:10px;font-size:13px;font-weight:600;background:#374151;color:#fff;border:none;border-radius:8px;cursor:pointer">🖨 Print Today's Schedule</button>
+          </div>
+          <div class="off-card" style="margin-top:0">
+            <div class="card-title">Override Individual Driver</div>
+            <div class="off-field"><label>Driver</label><select id="att-driver"><option value="">-- Select --</option></select></div>
+            <div class="row2">
+              <div class="off-field"><label>Break Start</label><input type="time" id="att-break-start"></div>
+              <div class="off-field"><label>Break End</label><input type="time" id="att-break-end"></div>
+            </div>
+            <div class="off-field"><label>Clock Out (override)</label><input type="time" id="att-clockout"></div>
+            <div class="off-field"><label>Notes</label><input type="text" id="att-notes" placeholder="e.g. Early leave, special schedule"></div>
+            <button class="btn-primary-off" onclick="saveDriverOverride()">Save Override</button>
+          </div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div class="section-label" style="margin:0">Today's Schedule</div>
+            <button class="btn-sm-off" onclick="loadAttendance()">Refresh</button>
+          </div>
+          <div id="att-list"><div class="empty">Loading...</div></div>
+        </div>
+      </div>
+
+      <!-- PRINT AREA -->
+      <div id="att-print-area" style="display:none">
+        <div style="text-align:center;margin-bottom:16px">
+          <div style="font-size:20px;font-weight:700">H mart</div>
+          <div style="font-size:15px;margin-top:4px">Driver Daily Schedule</div>
+          <div style="font-size:13px;color:#64748B;margin-top:4px" id="att-print-date"></div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="background:#1F4E79;color:#fff">
+              <th style="padding:10px;text-align:left;border:1px solid #E2E8F0">Driver</th>
+              <th style="padding:10px;text-align:center;border:1px solid #E2E8F0">Clock In</th>
+              <th style="padding:10px;text-align:center;border:1px solid #E2E8F0">Break Start</th>
+              <th style="padding:10px;text-align:center;border:1px solid #E2E8F0">Break End</th>
+              <th style="padding:10px;text-align:center;border:1px solid #E2E8F0">Clock Out</th>
+              <th style="padding:10px;text-align:left;border:1px solid #E2E8F0">Notes</th>
+              <th style="padding:10px;text-align:center;border:1px solid #E2E8F0">Signature</th>
+            </tr>
+          </thead>
+          <tbody id="att-print-body"></tbody>
+        </table>
+        <div style="margin-top:20px;font-size:11px;color:#94A3B8;text-align:center">Generated: <span id="att-print-gen"></span></div>
+      </div>
     </div>
 
     <div id="tab-checklist" class="off-screen">
@@ -1233,12 +1299,13 @@ async function drvArrive() {
 
 // ---- LIVE STATUS ----
 function switchTab(t) {
-  var tabs = ['orders','live','vehicles','checklist','fuel'];
+  var tabs = ['orders','live','vehicles','attendance','checklist','fuel'];
   document.querySelectorAll('.nav-btn').forEach(function(b, i) { b.classList.toggle('active', tabs[i] === t); });
   document.querySelectorAll('.off-screen').forEach(function(s) { s.classList.remove('active'); });
   document.getElementById('tab-' + t).classList.add('active');
   if(t === 'live') loadLive();
   else if(t === 'vehicles') loadVehicles();
+  else if(t === 'attendance') { loadAttendance(); loadAttDriverSelect(); }
   else if(t === 'fuel') loadFuel();
 }
 
@@ -1308,6 +1375,50 @@ async function loadLive() {
         '</div>';
       });
     }
+    // ── VEHICLE STATUS ──
+    html += '<div class="section-label" style="margin-top:16px">Fleet Status</div>';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;margin-bottom:8px">';
+    var vehList = await apiGet('getVehicleStatus');
+    (vehList || []).forEach(function(v) {
+      var activeRun = active.find(function(r) { return r.vehicle && r.vehicle.trim() === v.vehicle.trim(); });
+      var onRoad = !!activeRun;
+      var statusColor = onRoad ? '#1D4ED8' : v.status === 'Active' ? '#059669' : '#DC2626';
+      var statusText  = onRoad ? '🚚 On Road' : v.status === 'Active' ? '✓ Available' : '⚠ ' + v.status;
+      html += '<div style="background:#fff;border:2px solid ' + statusColor + ';border-radius:8px;padding:10px 12px">' +
+        '<div style="font-size:13px;font-weight:700;color:#111">' + v.vehicle + '</div>' +
+        '<div style="font-size:11px;color:#64748B">' + v.plate + '</div>' +
+        '<div style="font-size:12px;font-weight:700;color:' + statusColor + ';margin-top:4px">' + statusText + '</div>' +
+        (onRoad ? '<div style="font-size:12px;color:#1D4ED8;margin-top:3px">👤 ' + activeRun.driver + '</div>' : '') +
+        (onRoad && activeRun.destination ? '<div style="font-size:11px;color:#64748B;margin-top:2px">📍 ' + activeRun.destination + '</div>' : '') +
+        (onRoad ? '<div style="font-size:11px;color:#64748B;margin-top:2px">🕐 Dep: ' + fmtTime(activeRun.depTime) + '</div>' : '') +
+      '</div>';
+    });
+    html += '</div>';
+
+    // ── DRIVER STATUS ──
+    html += '<div class="section-label">Driver Status Today</div>';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px">';
+    var activeDrivers = active.map(function(r) { return r.driver; });
+    var doneDrivers = comp.map(function(r) { return r.driver; });
+    var nowMins = new Date().getHours()*60 + new Date().getMinutes();
+    DRIVERS.forEach(function(d) {
+      var onRoad = activeDrivers.indexOf(d) > -1;
+      var sched = getDriverSchedule ? getDriverSchedule(d) : defaultSchedule;
+      var bsMins = sched.breakStart ? parseInt(sched.breakStart.split(':')[0])*60+parseInt(sched.breakStart.split(':')[1]) : -1;
+      var beMins = sched.breakEnd   ? parseInt(sched.breakEnd.split(':')[0])*60+parseInt(sched.breakEnd.split(':')[1])   : -1;
+      var onBreak = !onRoad && bsMins > -1 && beMins > -1 && nowMins >= bsMins && nowMins < beMins;
+      var statusColor = onRoad ? '#1D4ED8' : onBreak ? '#F59E0B' : '#059669';
+      var statusText  = onRoad ? '🚚 On Road' : onBreak ? '☕ On Break' : '✓ Available';
+      var activeRun   = onRoad ? active.find(function(r) { return r.driver === d; }) : null;
+      html += '<div style="background:' + statusColor + ';border-radius:8px;padding:10px 12px">' +
+        '<div style="font-size:13px;font-weight:700;color:#fff">' + d + '</div>' +
+        '<div style="font-size:12px;color:#fff;opacity:0.9;margin-top:3px">' + statusText + '</div>' +
+        (onRoad && activeRun ? '<div style="font-size:10px;color:#fff;opacity:0.8;margin-top:2px">📍 ' + (activeRun.destination || 'Delivering') + '</div>' : '') +
+        (onBreak ? '<div style="font-size:10px;color:#fff;opacity:0.8;margin-top:2px">' + sched.breakStart + ' — ' + sched.breakEnd + '</div>' : '') +
+      '</div>';
+    });
+    html += '</div>';
+
     document.getElementById('live-list').innerHTML = html || '<div class="empty">No activity today</div>';
   } catch(e) { document.getElementById('live-list').innerHTML = '<div class="empty">Error loading</div>'; }
 }
@@ -1600,6 +1711,143 @@ function renderReport(data) {
 }
 
 function printReport(){window.print();}
+
+// ---- ATTENDANCE (Schedule-based) ----
+var defaultSchedule = { clockin:'08:00', clockout:'17:00', breakStart:'12:00', breakEnd:'13:00' };
+var driverOverrides = {}; // per-driver overrides
+
+// Load saved schedule and overrides
+(function(){
+  try {
+    var s = localStorage.getItem('hmart_schedule');
+    if(s) {
+      defaultSchedule = JSON.parse(s);
+      var di = document.getElementById('def-clockin');
+      var do_ = document.getElementById('def-clockout');
+      var dbs = document.getElementById('def-break-start');
+      var dbe = document.getElementById('def-break-end');
+      if(di)  di.value  = defaultSchedule.clockin;
+      if(do_) do_.value = defaultSchedule.clockout;
+      if(dbs) dbs.value = defaultSchedule.breakStart;
+      if(dbe) dbe.value = defaultSchedule.breakEnd;
+    }
+    var ov = localStorage.getItem('hmart_overrides');
+    if(ov) driverOverrides = JSON.parse(ov);
+  } catch(e) {}
+})();
+
+function getDriverSchedule(driver) {
+  var ov = driverOverrides[driver] || {};
+  return {
+    clockin:    ov.clockin    || defaultSchedule.clockin,
+    clockout:   ov.clockout   || defaultSchedule.clockout,
+    breakStart: ov.breakStart || defaultSchedule.breakStart,
+    breakEnd:   ov.breakEnd   || defaultSchedule.breakEnd,
+    notes:      ov.notes      || ''
+  };
+}
+
+function isOnBreak(driver) {
+  var sched = getDriverSchedule(driver);
+  if(!sched.breakStart || !sched.breakEnd) return false;
+  var now = new Date();
+  var nowMins = now.getHours()*60 + now.getMinutes();
+  var bsMins = parseInt(sched.breakStart.split(':')[0])*60 + parseInt(sched.breakStart.split(':')[1]);
+  var beMins = parseInt(sched.breakEnd.split(':')[0])*60 + parseInt(sched.breakEnd.split(':')[1]);
+  return nowMins >= bsMins && nowMins < beMins;
+}
+
+function saveDefaultSchedule() {
+  defaultSchedule.clockin    = document.getElementById('def-clockin').value    || '08:00';
+  defaultSchedule.clockout   = document.getElementById('def-clockout').value   || '17:00';
+  defaultSchedule.breakStart = document.getElementById('def-break-start').value || '12:00';
+  defaultSchedule.breakEnd   = document.getElementById('def-break-end').value   || '13:00';
+  try { localStorage.setItem('hmart_schedule', JSON.stringify(defaultSchedule)); } catch(e) {}
+  toast('toast-att', 'Default schedule saved!', true);
+  loadAttendance();
+}
+
+function saveDriverOverride() {
+  var driver = document.getElementById('att-driver').value;
+  if(!driver) { toast('toast-att', 'Select a driver', false); return; }
+  var ov = {
+    breakStart: document.getElementById('att-break-start').value || defaultSchedule.breakStart,
+    breakEnd:   document.getElementById('att-break-end').value   || defaultSchedule.breakEnd,
+    clockout:   document.getElementById('att-clockout').value    || defaultSchedule.clockout,
+    notes:      document.getElementById('att-notes').value       || ''
+  };
+  driverOverrides[driver] = ov;
+  try { localStorage.setItem('hmart_overrides', JSON.stringify(driverOverrides)); } catch(e) {}
+  toast('toast-att', driver + ' schedule saved!', true);
+  loadAttendance();
+}
+
+function loadAttDriverSelect() {
+  var sel = document.getElementById('att-driver');
+  if(!sel) return;
+  sel.innerHTML = '<option value="">-- Select --</option>' +
+    DRIVERS.map(function(d) { return '<option>' + d + '</option>'; }).join('');
+}
+
+function calcHours(start, end) {
+  try {
+    var s = start.split(':'); var e = end.split(':');
+    var mins = (parseInt(e[0])*60+parseInt(e[1])) - (parseInt(s[0])*60+parseInt(s[1]));
+    if(mins < 0) return '-';
+    return Math.floor(mins/60) + 'h ' + (mins%60) + 'm';
+  } catch(e) { return '-'; }
+}
+
+function loadAttendance() {
+  document.getElementById('att-list').innerHTML = '<div class="empty">Loading...</div>';
+  var now = new Date();
+  var nowMins = now.getHours()*60 + now.getMinutes();
+  var html = DRIVERS.map(function(d) {
+    var sched = getDriverSchedule(d);
+    var bsMins = sched.breakStart ? parseInt(sched.breakStart.split(':')[0])*60+parseInt(sched.breakStart.split(':')[1]) : -1;
+    var beMins = sched.breakEnd   ? parseInt(sched.breakEnd.split(':')[0])*60+parseInt(sched.breakEnd.split(':')[1])   : -1;
+    var onBreak = bsMins > -1 && beMins > -1 && nowMins >= bsMins && nowMins < beMins;
+    var statusColor = onBreak ? '#F59E0B' : '#059669';
+    var statusText  = onBreak ? '☕ On Break' : '✓ Available';
+    return '<div style="background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:12px;margin-bottom:8px;border-left:4px solid ' + statusColor + '">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">' +
+        '<div style="font-size:14px;font-weight:700">' + d + '</div>' +
+        '<span style="background:' + statusColor + ';color:#fff;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px">' + statusText + '</span>' +
+      '</div>' +
+      '<div style="display:flex;gap:12px;font-size:12px;color:#374151;flex-wrap:wrap">' +
+        '<span>🟢 In: <strong>' + sched.clockin + '</strong></span>' +
+        '<span>☕ Break: <strong>' + sched.breakStart + ' — ' + sched.breakEnd + '</strong></span>' +
+        '<span>🔴 Out: <strong>' + sched.clockout + '</strong></span>' +
+        '<span style="color:#1F4E79;font-weight:600">Hours: ' + calcHours(sched.clockin, sched.clockout) + '</span>' +
+      '</div>' +
+      (sched.notes ? '<div style="font-size:11px;color:#92400E;background:#FEF3C7;padding:4px 8px;border-radius:4px;margin-top:6px">' + sched.notes + '</div>' : '') +
+    '</div>';
+  }).join('');
+  document.getElementById('att-list').innerHTML = html;
+}
+
+function printAttendance() {
+  var today = new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  document.getElementById('att-print-date').textContent = today;
+  document.getElementById('att-print-gen').textContent = new Date().toLocaleString();
+  var tbody = document.getElementById('att-print-body');
+  tbody.innerHTML = DRIVERS.map(function(d, i) {
+    var sched = getDriverSchedule(d);
+    var bg = i % 2 === 0 ? '#fff' : '#F8FAFC';
+    return '<tr style="background:' + bg + '">' +
+      '<td style="padding:10px;border:1px solid #E2E8F0;font-weight:600">' + d + '</td>' +
+      '<td style="padding:10px;border:1px solid #E2E8F0;text-align:center">' + sched.clockin + '</td>' +
+      '<td style="padding:10px;border:1px solid #E2E8F0;text-align:center;background:#FEF3C7">' + sched.breakStart + '</td>' +
+      '<td style="padding:10px;border:1px solid #E2E8F0;text-align:center;background:#FEF3C7">' + sched.breakEnd + '</td>' +
+      '<td style="padding:10px;border:1px solid #E2E8F0;text-align:center">' + sched.clockout + '</td>' +
+      '<td style="padding:10px;border:1px solid #E2E8F0">' + (sched.notes || '') + '</td>' +
+      '<td style="padding:10px;border:1px solid #E2E8F0;width:100px"></td>' +
+    '</tr>';
+  }).join('');
+  document.getElementById('att-print-area').style.display = 'block';
+  window.print();
+  setTimeout(function() { document.getElementById('att-print-area').style.display = 'none'; }, 1000);
+}
 
 setInterval(function(){
   var liveTab=document.getElementById('tab-live');
