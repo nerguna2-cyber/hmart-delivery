@@ -429,6 +429,7 @@ function showNetworkStatus(msg, color) {
       <div id="drv-toast" class="toast"></div>
 
       <div id="drv-s1">
+
         <div class="card">
           <div class="card-title">Who are you?</div>
           <div class="field">
@@ -512,6 +513,85 @@ function showNetworkStatus(msg, color) {
         </div>
       </div>
     </div>
+
+      <!-- SPECIAL / EMERGENCY RUN — always visible -->
+      <div id="drv-special-section" style="display:none">
+        <div style="border-top:2px dashed #F59E0B;margin:16px 0 12px;padding-top:12px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+            <span style="font-size:18px">🚨</span>
+            <div>
+              <div style="font-size:14px;font-weight:700;color:#92400E">Emergency / Special Run</div>
+              <div style="font-size:11px;color:#B45309">No office order — driver-initiated run</div>
+            </div>
+            <button onclick="toggleSpecialRun()" id="special-toggle-btn" style="margin-left:auto;padding:6px 12px;font-size:12px;font-weight:600;background:#F59E0B;color:#fff;border:none;border-radius:6px;cursor:pointer">+ Open</button>
+          </div>
+        </div>
+        <div id="special-run-form" style="display:none">
+          <div class="card" style="border:2px solid #F59E0B;background:#FFFBEB;margin-top:0">
+            <div class="field">
+              <label>Run Type</label>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px" id="special-type-btns">
+                <button class="special-type-btn" data-type="Airport Pickup" onclick="selectSpecialType(this)" style="padding:12px 6px;font-size:12px;font-weight:600;border:2px solid #D1D5DB;border-radius:8px;background:#fff;cursor:pointer">✈️ Airport Pickup</button>
+                <button class="special-type-btn" data-type="Moalboal Delivery" onclick="selectSpecialType(this)" style="padding:12px 6px;font-size:12px;font-weight:600;border:2px solid #D1D5DB;border-radius:8px;background:#fff;cursor:pointer">🚐 Moalboal</button>
+                <button class="special-type-btn" data-type="Bohol Delivery" onclick="selectSpecialType(this)" style="padding:12px 6px;font-size:12px;font-weight:600;border:2px solid #D1D5DB;border-radius:8px;background:#fff;cursor:pointer">🚢 Bohol Delivery</button>
+                <button class="special-type-btn" data-type="Vegetable Pickup" onclick="selectSpecialType(this)" style="padding:12px 6px;font-size:12px;font-weight:600;border:2px solid #D1D5DB;border-radius:8px;background:#fff;cursor:pointer">🥬 Veg Pickup</button>
+                <button class="special-type-btn" data-type="__other__" onclick="selectSpecialType(this)" style="padding:12px 6px;font-size:12px;font-weight:600;border:2px solid #D1D5DB;border-radius:8px;background:#fff;cursor:pointer;grid-column:span 2">✏️ Other (type below)</button>
+              </div>
+              <input type="text" id="special-type-custom" placeholder="Enter run type..." style="display:none;margin-top:8px;width:100%;padding:12px;border:1px solid #D1D5DB;border-radius:8px;font-size:14px">
+            </div>
+            <div class="field">
+              <label>Vehicle</label>
+              <select id="special-vehicle">
+                <option value="">-- Select Vehicle --</option>
+                <optgroup label="Vehicles">
+                  <option data-plate="GAD 3842">BIG PLUS (GAD 3842)</option>
+                  <option data-plate="Z295">LITE ACE (Z295)</option>
+                  <option data-plate="CAK 3176">G-LINK (CAK 3176)</option>
+                  <option data-plate="GBE 4005">TRAVIZ MOALBOAL (GBE 4005)</option>
+                  <option data-plate="GBK 7550">LITE ACE (GBK 7550)</option>
+                  <option data-plate="R475">LITE ACE (Z5 R475)</option>
+                  <option data-plate="NAM 7510">10 WHEELS (NAM 7510)</option>
+                  <option data-plate="GBE 5818">FROZEN (GBE 5818)</option>
+                </optgroup>
+                <optgroup label="Motors">
+                  <option data-plate="301 GAG">HONDA BEAT (301 GAG)</option>
+                  <option data-plate="G756 SM">MIO MOTOR (G756 SM)</option>
+                </optgroup>
+              </select>
+            </div>
+            <div class="field">
+              <label>Co-Driver (optional)</label>
+              <select id="special-codrv"><option value="">None</option></select>
+            </div>
+            <div class="field">
+              <label>Odometer at Departure (km)</label>
+              <input type="number" id="special-depkm" placeholder="e.g. 91120" inputmode="numeric">
+            </div>
+            <div class="field">
+              <label>Notes (optional)</label>
+              <input type="text" id="special-notes" placeholder="e.g. 3 boxes, Gate 3, overnight...">
+            </div>
+            <button class="btn-depart" onclick="specialDepart()" id="special-depart-btn" style="background:#F59E0B">🚨 Emergency Depart</button>
+          </div>
+        </div>
+        <!-- Active special run -->
+        <div id="special-active" style="display:none">
+          <div class="card" style="border:2px solid #F59E0B">
+            <div style="background:#F59E0B;color:#fff;border-radius:8px;padding:10px 12px;font-size:13px;font-weight:700;margin-bottom:12px">🚨 SPECIAL RUN IN PROGRESS</div>
+            <div class="info-box" id="special-run-info"></div>
+            <div class="divider"></div>
+            <div class="field">
+              <label>Odometer at Arrival (km)</label>
+              <input type="number" id="special-arrkm" placeholder="e.g. 91390" inputmode="numeric">
+            </div>
+            <div class="field">
+              <label>Remarks</label>
+              <textarea id="special-remarks" placeholder="Delivery details, issues..."></textarea>
+            </div>
+            <button class="btn-arrive" onclick="specialArrive()">Complete Special Run ✓</button>
+          </div>
+        </div>
+      </div>
   </div>
 </div>
 
@@ -600,31 +680,38 @@ function showNetworkStatus(msg, color) {
     <!-- ATTENDANCE TAB -->
     <div id="tab-attendance" class="off-screen">
       <div id="toast-att" class="toast"></div>
-      <div style="display:grid;grid-template-columns:360px 1fr;gap:20px">
+      <div style="display:grid;grid-template-columns:400px 1fr;gap:20px">
+
+        <!-- LEFT: schedule editor -->
         <div>
           <div class="off-card">
-            <div class="card-title">Default Daily Schedule</div>
-            <div class="row2">
-              <div class="off-field"><label>Clock In</label><input type="time" id="def-clockin" value="08:00"></div>
-              <div class="off-field"><label>Clock Out</label><input type="time" id="def-clockout" value="17:00"></div>
-            </div>
-            <div class="row2">
-              <div class="off-field"><label>Break Start</label><input type="time" id="def-break-start" value="12:00"></div>
-              <div class="off-field"><label>Break End</label><input type="time" id="def-break-end" value="13:00"></div>
-            </div>
-            <button class="btn-primary-off" style="margin-bottom:8px" onclick="saveDefaultSchedule()">Save Default Schedule</button>
-            <button onclick="printAttendance()" style="width:100%;padding:10px;font-size:13px;font-weight:600;background:#374151;color:#fff;border:none;border-radius:8px;cursor:pointer">🖨 Print Today's Schedule</button>
-          </div>
-          <div class="off-card" style="margin-top:0">
-            <div class="card-title">Individual Driver Schedule</div>
-            <div style="font-size:12px;color:#64748B;margin-bottom:10px">Edit each driver's times. Blank = use default above.</div>
+            <div class="card-title">Driver Schedules</div>
+            <div style="font-size:12px;color:#64748B;margin-bottom:10px">Set each driver's Clock In and Break Start. Times are saved per driver.</div>
             <div id="att-driver-table"><div class="empty">Loading...</div></div>
-            <button class="btn-primary-off" style="margin-top:10px" onclick="saveAllOverrides()">Save All Schedules</button>
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <button class="btn-primary-off" style="flex:1" onclick="saveAllOverrides()">Save All Schedules</button>
+              <button onclick="printAttendance()" style="flex:1;padding:10px;font-size:13px;font-weight:600;background:#374151;color:#fff;border:none;border-radius:8px;cursor:pointer">🖨 Print</button>
+            </div>
+          </div>
+          <div class="off-card">
+            <div class="card-title">Record Actual Break Time</div>
+            <div style="font-size:12px;color:#64748B;margin-bottom:10px">Enter when driver actually took their break (as told to office).</div>
+            <div class="row2">
+              <div class="off-field"><label>Driver</label>
+                <select id="att-break-driver"><option value="">-- Select --</option></select>
+              </div>
+              <div class="off-field"><label>Actual Break Start</label>
+                <input type="time" id="att-actual-break">
+              </div>
+            </div>
+            <button class="btn-primary-off" onclick="saveActualBreak()">Save Actual Break</button>
           </div>
         </div>
+
+        <!-- RIGHT: today's status -->
         <div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-            <div class="section-label" style="margin:0">Today's Schedule</div>
+            <div class="section-label" style="margin:0">Today's Driver Status</div>
             <button class="btn-sm-off" onclick="loadAttendance()">Refresh</button>
           </div>
           <div id="att-list"><div class="empty">Loading...</div></div>
@@ -644,7 +731,6 @@ function showNetworkStatus(msg, color) {
               <th style="padding:10px;text-align:left;border:1px solid #E2E8F0">Driver</th>
               <th style="padding:10px;text-align:center;border:1px solid #E2E8F0">Clock In</th>
               <th style="padding:10px;text-align:center;border:1px solid #E2E8F0">Break Start</th>
-              <th style="padding:10px;text-align:center;border:1px solid #E2E8F0">Break End</th>
               <th style="padding:10px;text-align:center;border:1px solid #E2E8F0">Clock Out</th>
               <th style="padding:10px;text-align:left;border:1px solid #E2E8F0">Notes</th>
               <th style="padding:10px;text-align:center;border:1px solid #E2E8F0">Signature</th>
@@ -653,8 +739,7 @@ function showNetworkStatus(msg, color) {
           <tbody id="att-print-body"></tbody>
         </table>
         <div style="margin-top:20px;font-size:11px;color:#94A3B8;text-align:center">Generated: <span id="att-print-gen"></span></div>
-      </div>
-    </div>
+      </div></div>
 
     <div id="tab-checklist" class="off-screen">
       <div id="toast-chk" class="toast"></div>
@@ -884,6 +969,12 @@ async function loadDriverList() {
   cSel.innerHTML = '<option value="">None</option>' +
     DRIVERS.map(function(d) { return '<option>' + d + '</option>'; }).join('') +
     '<option value="other">Other (type)...</option>';
+
+  // Show special run notice if off-hours
+  if(!isOfficeHours()) {
+    var notice = document.getElementById('off-hours-notice');
+    if(notice) notice.style.display = 'block';
+  }
 }
 
 function loadDriverSelectsOffice() {
@@ -955,6 +1046,36 @@ function addFastRow() {
 }
 
 function removeFR(id) { var el = document.getElementById('fr-' + id); if(el) el.remove(); delete rowPayment[id]; }
+
+function showDrvSched(id) {
+  var sel   = document.getElementById('fr-d-' + id);
+  var box   = document.getElementById('fr-sched-' + id);
+  if(!sel || !box) return;
+  var d = sel.value;
+  if(!d) { box.style.display = 'none'; return; }
+  var sc = (typeof getDriverSched === 'function') ? getDriverSched(d) : null;
+  if(!sc || (!sc.clockin && !sc.breakStart)) { box.style.display = 'none'; return; }
+  var nowMins = new Date().getHours()*60 + new Date().getMinutes();
+  var bStart = (actualBreaks && actualBreaks[d]) || sc.breakStart;
+  var bMins  = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
+  var onBreak = bMins > -1 && nowMins >= bMins && nowMins < bMins+60;
+  var onRoad  = false;
+  // Check if driver is on road from cached data
+  if(typeof allOrders !== 'undefined') {
+    // use cached run data if available
+  }
+  var statusIcon = onBreak ? '☕ On Break' : '✓ Available';
+  var statusColor = onBreak ? '#92400E' : '#065F46';
+  var statusBg    = onBreak ? '#FEF3C7' : '#F0FDF4';
+  box.style.display = 'block';
+  box.style.background = statusBg;
+  box.style.borderColor = onBreak ? '#FDE68A' : '#86EFAC';
+  box.innerHTML =
+    '<div style="font-weight:700;color:' + statusColor + '">' + d + ' — ' + statusIcon + '</div>' +
+    (sc.clockin    ? '<div>🟢 ' + sc.clockin + '</div>' : '') +
+    (bStart        ? '<div>☕ Break: ' + bStart + '</div>' : '') +
+    (sc.clockout   ? '<div>🔴 ' + sc.clockout + '</div>' : '');
+}
 
 function frCalc(id) {
   var bill = parseFloat(document.getElementById('fr-b-' + id).value) || 0;
@@ -1116,6 +1237,8 @@ function drvReset() {
   document.getElementById('drv-name').value = '';
   document.getElementById('drv-s2').style.display = 'none';
   document.getElementById('drv-s1').style.display = 'block';
+  var specSec = document.getElementById('drv-special-section');
+  if(specSec) specSec.style.display = 'none';
 }
 
 function drvToggleCodrv() {
@@ -1131,7 +1254,23 @@ async function drvSelectName() {
   document.getElementById('drv-s2').style.display = 'block';
   document.getElementById('drv-name-disp').textContent = driver;
 
-  // Filter codriver - remove self
+  // Populate special run selects with current driver
+  var sd = document.getElementById('special-driver');
+  if(sd) {
+    sd.innerHTML = '<option value="">-- Select Driver --</option>' +
+      DRIVERS.map(function(d) { return '<option' + (d===driver?' selected':'') + '>' + d + '</option>'; }).join('');
+  }
+  var sc = document.getElementById('special-codrv');
+  if(sc) {
+    sc.innerHTML = '<option value="">None</option>' +
+      DRIVERS.filter(function(d) { return d !== driver; }).map(function(d) { return '<option>' + d + '</option>'; }).join('');
+  }
+
+  // Show special run section
+  var specSec = document.getElementById('drv-special-section');
+  if(specSec) specSec.style.display = 'block';
+
+  // Filter normal codriver - remove self
   var cSel = document.getElementById('drv-codrv');
   Array.from(cSel.options).forEach(function(opt) {
     opt.disabled = opt.value === driver;
@@ -1477,10 +1616,12 @@ async function loadLive() {
     var nowMins = new Date().getHours()*60 + new Date().getMinutes();
     DRIVERS.forEach(function(d) {
       var onRoad = activeDrivers.indexOf(d) > -1;
-      var sched = getDriverSchedule ? getDriverSchedule(d) : defaultSchedule;
-      var bsMins = sched.breakStart ? parseInt(sched.breakStart.split(':')[0])*60+parseInt(sched.breakStart.split(':')[1]) : -1;
-      var beMins = sched.breakEnd   ? parseInt(sched.breakEnd.split(':')[0])*60+parseInt(sched.breakEnd.split(':')[1])   : -1;
-      var onBreak = !onRoad && bsMins > -1 && beMins > -1 && nowMins >= bsMins && nowMins < beMins;
+      var sched = (typeof getDriverSched === 'function') ? getDriverSched(d) : { breakStart:'12:00' };
+      var actualB = actualBreaks[d] || null;
+      var bStart = actualB || sched.breakStart;
+      var bsMins = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
+      var onBreak = !onRoad && bsMins > -1 && nowMins >= bsMins && nowMins < bsMins + 60;
+      var beMins = -1; // kept for reference
       var statusColor = onRoad ? '#1D4ED8' : onBreak ? '#F59E0B' : '#059669';
       var statusText  = onRoad ? '🚚 On Road' : onBreak ? '☕ On Break' : '✓ Available';
       var activeRun   = onRoad ? active.find(function(r) { return r.driver === d; }) : null;
@@ -1786,110 +1927,97 @@ function renderReport(data) {
 
 function printReport(){window.print();}
 
-// ---- ATTENDANCE (Schedule-based) ----
-var defaultSchedule = { clockin:'08:00', clockout:'17:00', breakStart:'12:00', breakEnd:'13:00' };
-var driverOverrides = {}; // per-driver overrides
+// ---- ATTENDANCE ----
+// driverSchedules: { ROMEL: { clockin:'08:00', breakStart:'12:00', clockout:'17:00', notes:'' }, ... }
+var driverSchedules = {};
+var actualBreaks = {}; // { ROMEL: '13:15' } — actual break start today
 
-// Load saved schedule and overrides
 (function(){
   try {
-    var s = localStorage.getItem('hmart_schedule');
-    if(s) {
-      defaultSchedule = JSON.parse(s);
-      var di = document.getElementById('def-clockin');
-      var do_ = document.getElementById('def-clockout');
-      var dbs = document.getElementById('def-break-start');
-      var dbe = document.getElementById('def-break-end');
-      if(di)  di.value  = defaultSchedule.clockin;
-      if(do_) do_.value = defaultSchedule.clockout;
-      if(dbs) dbs.value = defaultSchedule.breakStart;
-      if(dbe) dbe.value = defaultSchedule.breakEnd;
-    }
-    var ov = localStorage.getItem('hmart_overrides');
-    if(ov) driverOverrides = JSON.parse(ov);
+    var ds = localStorage.getItem('hmart_driver_schedules');
+    if(ds) driverSchedules = JSON.parse(ds);
+    var ab = localStorage.getItem('hmart_actual_breaks_' + new Date().toISOString().slice(0,10));
+    if(ab) actualBreaks = JSON.parse(ab);
   } catch(e) {}
 })();
 
-function getDriverSchedule(driver) {
-  var ov = driverOverrides[driver] || {};
-  return {
-    clockin:    ov.clockin    || defaultSchedule.clockin,
-    clockout:   ov.clockout   || defaultSchedule.clockout,
-    breakStart: ov.breakStart || defaultSchedule.breakStart,
-    breakEnd:   ov.breakEnd   || defaultSchedule.breakEnd,
-    notes:      ov.notes      || ''
-  };
+function getDriverSched(driver) {
+  return driverSchedules[driver] || { clockin:'08:00', breakStart:'12:00', clockout:'17:00', notes:'' };
 }
 
-function isOnBreak(driver) {
-  var sched = getDriverSchedule(driver);
-  if(!sched.breakStart || !sched.breakEnd) return false;
+function isOnBreakNow(driver) {
   var now = new Date();
   var nowMins = now.getHours()*60 + now.getMinutes();
-  var bsMins = parseInt(sched.breakStart.split(':')[0])*60 + parseInt(sched.breakStart.split(':')[1]);
-  var beMins = parseInt(sched.breakEnd.split(':')[0])*60 + parseInt(sched.breakEnd.split(':')[1]);
-  return nowMins >= bsMins && nowMins < beMins;
-}
-
-function saveDefaultSchedule() {
-  defaultSchedule.clockin    = document.getElementById('def-clockin').value    || '08:00';
-  defaultSchedule.clockout   = document.getElementById('def-clockout').value   || '17:00';
-  defaultSchedule.breakStart = document.getElementById('def-break-start').value || '12:00';
-  defaultSchedule.breakEnd   = document.getElementById('def-break-end').value   || '13:00';
-  try { localStorage.setItem('hmart_schedule', JSON.stringify(defaultSchedule)); } catch(e) {}
-  toast('toast-att', 'Default schedule saved!', true);
-  loadAttendance();
+  // Use actual break if recorded, else scheduled
+  var bStart = actualBreaks[driver] || getDriverSched(driver).breakStart;
+  if(!bStart) return false;
+  var bMins = parseInt(bStart.split(':')[0])*60 + parseInt(bStart.split(':')[1]);
+  // Break assumed to be 1 hour
+  return nowMins >= bMins && nowMins < bMins + 60;
 }
 
 function buildAttDriverTable() {
   var el = document.getElementById('att-driver-table');
   if(!el) return;
-  el.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+  el.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:380px">' +
     '<thead><tr style="background:#F1F5F9">' +
-      '<th style="padding:7px 8px;text-align:left;border:1px solid #E2E8F0;font-weight:600">Driver</th>' +
-      '<th style="padding:7px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:600">Clock In</th>' +
-      '<th style="padding:7px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:600;background:#FEF3C7">Break Start</th>' +
-      '<th style="padding:7px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:600;background:#FEF3C7">Break End</th>' +
-      '<th style="padding:7px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:600">Clock Out</th>' +
-      '<th style="padding:7px 8px;text-align:left;border:1px solid #E2E8F0;font-weight:600">Notes</th>' +
+      '<th style="padding:6px 8px;text-align:left;border:1px solid #E2E8F0;font-weight:600">Driver</th>' +
+      '<th style="padding:6px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:600">Clock In</th>' +
+      '<th style="padding:6px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:600;background:#FEF3C7">Break</th>' +
+      '<th style="padding:6px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:600">Clock Out</th>' +
+      '<th style="padding:6px 8px;text-align:left;border:1px solid #E2E8F0;font-weight:600">Notes</th>' +
     '</tr></thead><tbody>' +
     DRIVERS.map(function(d) {
-      var ov = driverOverrides[d] || {};
+      var sc = getDriverSched(d);
       return '<tr>' +
-        '<td style="padding:6px 8px;border:1px solid #E2E8F0;font-weight:600;white-space:nowrap">' + d + '</td>' +
-        '<td style="padding:4px;border:1px solid #E2E8F0"><input type="time" id="ov-ci-' + d + '" value="' + (ov.clockin||defaultSchedule.clockin) + '" style="width:100%;border:none;font-size:12px;text-align:center;padding:4px"></td>' +
-        '<td style="padding:4px;border:1px solid #E2E8F0;background:#FFFBEB"><input type="time" id="ov-bs-' + d + '" value="' + (ov.breakStart||defaultSchedule.breakStart) + '" style="width:100%;border:none;font-size:12px;text-align:center;padding:4px;background:transparent"></td>' +
-        '<td style="padding:4px;border:1px solid #E2E8F0;background:#FFFBEB"><input type="time" id="ov-be-' + d + '" value="' + (ov.breakEnd||defaultSchedule.breakEnd) + '" style="width:100%;border:none;font-size:12px;text-align:center;padding:4px;background:transparent"></td>' +
-        '<td style="padding:4px;border:1px solid #E2E8F0"><input type="time" id="ov-co-' + d + '" value="' + (ov.clockout||defaultSchedule.clockout) + '" style="width:100%;border:none;font-size:12px;text-align:center;padding:4px"></td>' +
-        '<td style="padding:4px;border:1px solid #E2E8F0"><input type="text" id="ov-nt-' + d + '" value="' + (ov.notes||'') + '" placeholder="Notes..." style="width:100%;border:none;font-size:12px;padding:4px"></td>' +
+        '<td style="padding:5px 7px;border:1px solid #E2E8F0;font-weight:600;white-space:nowrap">' + d + '</td>' +
+        '<td style="padding:3px;border:1px solid #E2E8F0"><input type="time" id="sc-ci-' + d + '" value="' + (sc.clockin||'') + '" style="width:100%;border:none;font-size:12px;text-align:center;padding:4px"></td>' +
+        '<td style="padding:3px;border:1px solid #E2E8F0;background:#FFFBEB"><input type="time" id="sc-bs-' + d + '" value="' + (sc.breakStart||'') + '" style="width:100%;border:none;font-size:12px;text-align:center;padding:4px;background:transparent"></td>' +
+        '<td style="padding:3px;border:1px solid #E2E8F0"><input type="time" id="sc-co-' + d + '" value="' + (sc.clockout||'') + '" style="width:100%;border:none;font-size:12px;text-align:center;padding:4px"></td>' +
+        '<td style="padding:3px;border:1px solid #E2E8F0"><input type="text" id="sc-nt-' + d + '" value="' + (sc.notes||'') + '" placeholder="Notes..." style="width:100%;border:none;font-size:11px;padding:4px"></td>' +
       '</tr>';
     }).join('') +
     '</tbody></table></div>';
+
+  // populate break driver select
+  var sel = document.getElementById('att-break-driver');
+  if(sel) {
+    sel.innerHTML = '<option value="">-- Select --</option>' +
+      DRIVERS.map(function(d) { return '<option>' + d + '</option>'; }).join('');
+  }
 }
 
 function saveAllOverrides() {
+  var changed = 0;
   DRIVERS.forEach(function(d) {
-    var ci = document.getElementById('ov-ci-' + d);
-    var bs = document.getElementById('ov-bs-' + d);
-    var be = document.getElementById('ov-be-' + d);
-    var co = document.getElementById('ov-co-' + d);
-    var nt = document.getElementById('ov-nt-' + d);
+    var ci = document.getElementById('sc-ci-' + d);
+    var bs = document.getElementById('sc-bs-' + d);
+    var co = document.getElementById('sc-co-' + d);
+    var nt = document.getElementById('sc-nt-' + d);
     if(!ci) return;
-    driverOverrides[d] = {
-      clockin:    ci.value || defaultSchedule.clockin,
-      breakStart: bs.value || defaultSchedule.breakStart,
-      breakEnd:   be.value || defaultSchedule.breakEnd,
-      clockout:   co.value || defaultSchedule.clockout,
-      notes:      nt ? nt.value : ''
+    driverSchedules[d] = {
+      clockin:    ci.value || '',
+      breakStart: bs ? bs.value || '' : '',
+      clockout:   co ? co.value || '' : '',
+      notes:      nt ? nt.value || '' : ''
     };
+    changed++;
   });
-  try { localStorage.setItem('hmart_overrides', JSON.stringify(driverOverrides)); } catch(e) {}
-  toast('toast-att', 'All schedules saved!', true);
+  try { localStorage.setItem('hmart_driver_schedules', JSON.stringify(driverSchedules)); } catch(e) {}
+  toast('toast-att', changed + ' driver schedules saved!', true);
   loadAttendance();
 }
 
-function loadAttDriverSelect() {
-  buildAttDriverTable();
+function saveActualBreak() {
+  var driver = document.getElementById('att-break-driver').value;
+  var time   = document.getElementById('att-actual-break').value;
+  if(!driver) { toast('toast-att', 'Select a driver', false); return; }
+  if(!time)   { toast('toast-att', 'Enter break time', false); return; }
+  actualBreaks[driver] = time;
+  var today = new Date().toISOString().slice(0,10);
+  try { localStorage.setItem('hmart_actual_breaks_' + today, JSON.stringify(actualBreaks)); } catch(e) {}
+  toast('toast-att', driver + ' break recorded at ' + time, true);
+  loadAttendance();
 }
 
 function calcHours(start, end) {
@@ -1903,28 +2031,35 @@ function calcHours(start, end) {
 
 function loadAttendance() {
   buildAttDriverTable();
-  document.getElementById('att-list').innerHTML = '<div class="empty">Loading...</div>';
   var now = new Date();
   var nowMins = now.getHours()*60 + now.getMinutes();
   var html = DRIVERS.map(function(d) {
-    var sched = getDriverSchedule(d);
-    var bsMins = sched.breakStart ? parseInt(sched.breakStart.split(':')[0])*60+parseInt(sched.breakStart.split(':')[1]) : -1;
-    var beMins = sched.breakEnd   ? parseInt(sched.breakEnd.split(':')[0])*60+parseInt(sched.breakEnd.split(':')[1])   : -1;
-    var onBreak = bsMins > -1 && beMins > -1 && nowMins >= bsMins && nowMins < beMins;
+    var sc = getDriverSched(d);
+    var actualB = actualBreaks[d] || null;
+    var bStart = actualB || sc.breakStart;
+    var bMins = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
+    var onBreak = bMins > -1 && nowMins >= bMins && nowMins < bMins + 60;
+    var noBreakRecorded = !actualB && !sc.breakStart;
     var statusColor = onBreak ? '#F59E0B' : '#059669';
     var statusText  = onBreak ? '☕ On Break' : '✓ Available';
+
+    // Warning: if scheduled break was > 30min ago and no actual break recorded
+    var schedBMins = sc.breakStart ? parseInt(sc.breakStart.split(':')[0])*60+parseInt(sc.breakStart.split(':')[1]) : -1;
+    var breakOverdue = !actualB && schedBMins > -1 && nowMins > schedBMins + 30;
+
     return '<div style="background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:12px;margin-bottom:8px;border-left:4px solid ' + statusColor + '">' +
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">' +
         '<div style="font-size:14px;font-weight:700">' + d + '</div>' +
         '<span style="background:' + statusColor + ';color:#fff;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px">' + statusText + '</span>' +
       '</div>' +
       '<div style="display:flex;gap:12px;font-size:12px;color:#374151;flex-wrap:wrap">' +
-        '<span>🟢 In: <strong>' + sched.clockin + '</strong></span>' +
-        '<span>☕ Break: <strong>' + sched.breakStart + ' — ' + sched.breakEnd + '</strong></span>' +
-        '<span>🔴 Out: <strong>' + sched.clockout + '</strong></span>' +
-        '<span style="color:#1F4E79;font-weight:600">Hours: ' + calcHours(sched.clockin, sched.clockout) + '</span>' +
+        (sc.clockin  ? '<span>🟢 In: <strong>' + sc.clockin + '</strong></span>' : '') +
+        (bStart ? '<span>' + (actualB ? '☕ Actual Break: ' : '☕ Sched Break: ') + '<strong>' + bStart + '</strong></span>' : '<span style="color:#94A3B8">No break set</span>') +
+        (sc.clockout ? '<span>🔴 Out: <strong>' + sc.clockout + '</strong></span>' : '') +
+        (sc.clockin && sc.clockout ? '<span style="color:#1F4E79;font-weight:600">Est: ' + calcHours(sc.clockin, sc.clockout) + '</span>' : '') +
       '</div>' +
-      (sched.notes ? '<div style="font-size:11px;color:#92400E;background:#FEF3C7;padding:4px 8px;border-radius:4px;margin-top:6px">' + sched.notes + '</div>' : '') +
+      (breakOverdue ? '<div style="background:#FEE2E2;border-radius:5px;padding:5px 8px;font-size:11px;color:#DC2626;font-weight:600;margin-top:6px">⚠ Break time passed — actual break not yet recorded</div>' : '') +
+      (sc.notes ? '<div style="font-size:11px;color:#92400E;background:#FEF3C7;padding:4px 8px;border-radius:4px;margin-top:6px">' + sc.notes + '</div>' : '') +
     '</div>';
   }).join('');
   document.getElementById('att-list').innerHTML = html;
@@ -1936,15 +2071,14 @@ function printAttendance() {
   document.getElementById('att-print-gen').textContent = new Date().toLocaleString();
   var tbody = document.getElementById('att-print-body');
   tbody.innerHTML = DRIVERS.map(function(d, i) {
-    var sched = getDriverSchedule(d);
+    var sc = getDriverSched(d);
     var bg = i % 2 === 0 ? '#fff' : '#F8FAFC';
     return '<tr style="background:' + bg + '">' +
       '<td style="padding:10px;border:1px solid #E2E8F0;font-weight:600">' + d + '</td>' +
-      '<td style="padding:10px;border:1px solid #E2E8F0;text-align:center">' + sched.clockin + '</td>' +
-      '<td style="padding:10px;border:1px solid #E2E8F0;text-align:center;background:#FEF3C7">' + sched.breakStart + '</td>' +
-      '<td style="padding:10px;border:1px solid #E2E8F0;text-align:center;background:#FEF3C7">' + sched.breakEnd + '</td>' +
-      '<td style="padding:10px;border:1px solid #E2E8F0;text-align:center">' + sched.clockout + '</td>' +
-      '<td style="padding:10px;border:1px solid #E2E8F0">' + (sched.notes || '') + '</td>' +
+      '<td style="padding:10px;border:1px solid #E2E8F0;text-align:center">' + (sc.clockin||'-') + '</td>' +
+      '<td style="padding:10px;border:1px solid #E2E8F0;text-align:center;background:#FEF3C7">' + (sc.breakStart||'-') + '</td>' +
+      '<td style="padding:10px;border:1px solid #E2E8F0;text-align:center">' + (sc.clockout||'-') + '</td>' +
+      '<td style="padding:10px;border:1px solid #E2E8F0">' + (sc.notes||'') + '</td>' +
       '<td style="padding:10px;border:1px solid #E2E8F0;width:100px"></td>' +
     '</tr>';
   }).join('');
