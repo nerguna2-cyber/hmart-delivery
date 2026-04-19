@@ -180,7 +180,7 @@ html{width:100%;overflow-x:hidden}
 
 <!-- API URL — change this to your deployed Apps Script URL -->
 <script>
-var API_URL = 'https://script.google.com/macros/s/AKfycbwzfK3fwF2-JCDKL6-z7ij8F-PVB2xdPMXaa3RbOWIdr-wDfnpKGlbFYXZKLNNVjztMBQ/exec';
+var API_URL = 'https://script.google.com/macros/s/AKfycbzmD1teXZs4WvT65y5B0oy_aH_bKUnqffgZBNQnAmNHESVxSfeWIIwlnSwGnjBP8N9SLg/exec';
 
 // API helpers — JSONP for GET (CORS-free), fetch for POST
 var _jsonpCbs = {};
@@ -969,7 +969,7 @@ function showPreDep(orders) {
 function showActiveRun(run, orders) {
   document.getElementById('drv-predep').style.display = 'none';
   document.getElementById('drv-active').style.display = 'block';
-  document.getElementById('drv-run-info').innerHTML = 'Departed <strong>' + run.depTime + '</strong> | ' + run.vehicle + ' | KM: <strong>' + run.depKm + '</strong>';
+  document.getElementById('drv-run-info').innerHTML = 'Departed <strong>' + fmtTime(run.depTime) + '</strong> | ' + run.vehicle + ' | KM: <strong>' + run.depKm + '</strong>';
   var myOrds = orders.filter(function(o) { return run.orderIds && run.orderIds.indexOf(o.orderId) > -1; });
   activeDelId = null;
   myOrds.forEach(function(o) { if(o.status === 'IN PROGRESS') activeDelId = o.orderId; });
