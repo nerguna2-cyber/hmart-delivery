@@ -901,6 +901,7 @@ var allOrders = [];
 var drvOrders = [];
 var curDriver = null;
 var activeDelId = null;
+var drvCurrentRunIds = [];
 var adminDrivers = [];
 var adminVehicles = [];
 
@@ -1425,6 +1426,7 @@ function showActiveRun(run, orders) {
   document.getElementById('drv-active').style.display = 'block';
   document.getElementById('drv-run-info').innerHTML = 'Departed <strong>' + fmtTime(run.depTime) + '</strong> | ' + run.vehicle + ' | KM: <strong>' + run.depKm + '</strong>';
   var myOrds = orders.filter(function(o) { return run.orderIds && run.orderIds.indexOf(o.orderId) > -1; });
+  drvCurrentRunIds = myOrds.map(function(o) { return o.orderId; });
   activeDelId = null;
   myOrds.forEach(function(o) { if(o.status === 'IN PROGRESS') activeDelId = o.orderId; });
   renderDelCards(myOrds);
@@ -1481,9 +1483,10 @@ async function startDel(orderId) {
   // Optimistic UI - update locally first for instant feedback
   order.status = order.status === 'IN PROGRESS' ? 'PENDING' : 'IN PROGRESS';
   activeDelId = order.status === 'IN PROGRESS' ? orderId : null;
-  renderDelCards(drvOrders.filter(function(o) {
-    return drvCurrentRunIds && drvCurrentRunIds.indexOf(o.orderId) > -1;
-  }));
+  var runOrds = drvCurrentRunIds && drvCurrentRunIds.length > 0
+    ? drvOrders.filter(function(o) { return drvCurrentRunIds.indexOf(o.orderId) > -1; })
+    : drvOrders.filter(function(o) { return o.driver === curDriver; });
+  renderDelCards(runOrds);
 
   if(order.status === 'IN PROGRESS') {
     var r2 = await apiPost('setOrderInProgress', { orderId: orderId });
