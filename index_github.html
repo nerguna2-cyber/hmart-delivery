@@ -279,9 +279,8 @@ function apiGet(action, params, retries) {
         if(done) return; done = true;
         delete window[cbName];
         if(attempt < retries) {
-          setTimeout(tryOnce, 1000);
+          setTimeout(tryOnce, 800);
         } else {
-          // Return cached data if available
           if(_cache[cacheKey]) {
             showNetworkStatus('No signal — showing cached data', 'orange');
             resolve(_cache[cacheKey]);
@@ -289,7 +288,7 @@ function apiGet(action, params, retries) {
             reject(new Error('No signal'));
           }
         }
-      }, 8000);
+      }, 7000);
       window[cbName] = function(data) {
         if(done) return; done = true;
         clearTimeout(timer); delete window[cbName];
@@ -857,10 +856,25 @@ function payBadge(p) {
   return '<span class="badge ' + (map[p] || 'badge-cash') + '">' + p + '</span>';
 }
 
+// Prefetch common data on page load
+var _prefetchDone = false;
+async function prefetchData() {
+  if(_prefetchDone) return;
+  _prefetchDone = true;
+  try {
+    // Fire both requests simultaneously
+    var p1 = apiGet('getTodayOrders');
+    var p2 = apiGet('getAdminSettings');
+    var results = await Promise.all([p1, p2]);
+    if(results[0]) allOrders = results[0];
+    if(results[1] && results[1].drivers) DRIVERS = results[1].drivers;
+  } catch(e) {}
+}
+
 // ---- LOAD DRIVER LIST ----
 async function loadDriverList() {
   try {
-    var data = await apiGet('getAdminSettings');
+    var data = _cache['getAdminSettings{}'] || await apiGet('getAdminSettings');
     if(data && data.drivers) DRIVERS = data.drivers;
   } catch(e) {}
   var sel = document.getElementById('drv-name');
@@ -1231,9 +1245,12 @@ function renderDelCards(orders) {
         '<button class="btn-start" onclick="startDel(\'' + o.orderId + '\')" style="margin-top:10px">▶ Start Delivery</button>'
       : '') +
       (isActive ?
-        '<div style="margin-top:10px;display:flex;gap:8px">' +
-          '<button onclick="startDel(\'' + o.orderId + '\')" style="flex:1;padding:12px 6px;font-size:13px;font-weight:700;background:#EF4444;color:#fff;border:none;border-radius:8px;cursor:pointer;min-height:48px">✕ Cancel</button>' +
-          '<button class="btn-complete" onclick="completeDel(\'' + o.orderId + '\')" style="flex:2">Mark as Delivered ✓</button>' +
+        '<div style="margin-top:10px;background:#1D4ED8;border-radius:10px;padding:10px 12px">' +
+          '<div style="color:#fff;font-size:14px;font-weight:800;text-align:center;margin-bottom:8px;letter-spacing:0.08em">🚚 DELIVERING NOW</div>' +
+          '<div style="display:flex;gap:8px">' +
+            '<button onclick="startDel(\'' + o.orderId + '\')" style="flex:1;padding:12px 6px;font-size:13px;font-weight:700;background:rgba(255,255,255,0.2);color:#fff;border:2px solid rgba(255,255,255,0.5);border-radius:8px;cursor:pointer;min-height:48px">✕ Cancel</button>' +
+            '<button onclick="confirmComplete(\'' + o.orderId + '\')" style="flex:2;padding:12px 6px;font-size:13px;font-weight:700;background:#059669;color:#fff;border:none;border-radius:8px;cursor:pointer;min-height:48px">✓ Delivered</button>' +
+          '</div>' +
         '</div>'
       : '') +
       (isLocked ? '<div class="locked-msg">Another delivery in progress</div>' : '') +
@@ -1244,21 +1261,50 @@ function renderDelCards(orders) {
 }
 
 async function startDel(orderId) {
-  // Toggle: if already IN PROGRESS, cancel it back to PENDING
   var order = (drvOrders || []).find ? (drvOrders || []).find(function(o) { return o.orderId === orderId; }) : null;
   if(!order) { drvLoadData(); return; }
+
+  // Optimistic UI - update locally first for instant feedback
+  order.status = order.status === 'IN PROGRESS' ? 'PENDING' : 'IN PROGRESS';
+  activeDelId = order.status === 'IN PROGRESS' ? orderId : null;
+  renderDelCards(drvOrders.filter(function(o) {
+    return drvCurrentRunIds && drvCurrentRunIds.indexOf(o.orderId) > -1;
+  }));
+
   if(order.status === 'IN PROGRESS') {
-    var r = await apiPost('cancelOrderProgress', { orderId: orderId });
-    if(r && r.success) { toast('drv-toast', 'Cancelled', false); drvLoadData(); }
-  } else {
     var r2 = await apiPost('setOrderInProgress', { orderId: orderId });
-    if(r2 && r2.success) { toast('drv-toast', 'Started!', true); drvLoadData(); }
+    if(r2 && r2.success) { toast('drv-toast', 'Started!', true); }
+    else { order.status = 'PENDING'; drvLoadData(); }
+  } else {
+    var r = await apiPost('cancelOrderProgress', { orderId: orderId });
+    if(r && r.success) { toast('drv-toast', 'Cancelled', false); }
+    else { order.status = 'IN PROGRESS'; drvLoadData(); }
   }
 }
 
 async function completeDel(orderId) {
   var r = await apiPost('completeOrder', { orderId: orderId, change: '' });
   if(r && r.success) { activeDelId = null; toast('drv-toast', 'Delivered!', true); drvLoadData(); }
+}
+
+function confirmComplete(orderId) {
+  // Show confirm overlay instead of browser confirm()
+  var existing = document.getElementById('confirm-overlay');
+  if(existing) existing.remove();
+  var overlay = document.createElement('div');
+  overlay.id = 'confirm-overlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.innerHTML =
+    '<div style="background:#fff;border-radius:16px;padding:24px;max-width:320px;width:100%;text-align:center">' +
+      '<div style="font-size:40px;margin-bottom:12px">✓</div>' +
+      '<div style="font-size:17px;font-weight:700;color:#111;margin-bottom:8px">Mark as Delivered?</div>' +
+      '<div style="font-size:14px;color:#64748B;margin-bottom:20px">This cannot be undone.</div>' +
+      '<div style="display:flex;gap:10px">' +
+        '<button onclick="document.getElementById('confirm-overlay').remove()" style="flex:1;padding:14px;font-size:15px;font-weight:600;background:#F1F5F9;color:#374151;border:none;border-radius:10px;cursor:pointer">Cancel</button>' +
+        '<button onclick="document.getElementById('confirm-overlay').remove();completeDel('' + orderId + '')" style="flex:1;padding:14px;font-size:15px;font-weight:700;background:#059669;color:#fff;border:none;border-radius:10px;cursor:pointer">Confirm</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
 }
 
 function checkAllDone(orders) {
@@ -1319,7 +1365,8 @@ function switchTab(t) {
   document.querySelectorAll('.nav-btn').forEach(function(b, i) { b.classList.toggle('active', tabs[i] === t); });
   document.querySelectorAll('.off-screen').forEach(function(s) { s.classList.remove('active'); });
   document.getElementById('tab-' + t).classList.add('active');
-  if(t === 'live') loadLive();
+  if(t === 'orders') loadOrders();
+  else if(t === 'live') loadLive();
   else if(t === 'vehicles') loadVehicles();
   else if(t === 'attendance') { loadAttendance(); buildAttDriverTable(); }
   else if(t === 'fuel') loadFuel();
@@ -1694,38 +1741,38 @@ function renderReport(data) {
     '<div class="report-stat"><div class="report-stat-num">P'+s.totalBill.toLocaleString()+'</div><div class="report-stat-lbl">Revenue</div></div>'+
   '</div></div>';
   if(Object.keys(s.payBreakdown).length){
-    html+='<div class="report-section"><div class="report-title">Payment Breakdown</div><table class="report-table"><thead><tr><th>Method</th><th>Orders</th><th>Amount</th><th>Change</th></tr></thead><tbody>';
+    html+='<div class="report-section"><div class="report-title">Payment Breakdown</div><div style="overflow-x:auto"><table class="report-table" style="min-width:400px"><thead><tr><th>Method</th><th>Orders</th><th>Amount</th><th>Change</th></tr></thead><tbody>';
     Object.keys(s.payBreakdown).forEach(function(p){var pb=s.payBreakdown[p];html+='<tr><td><strong>'+p+'</strong></td><td>'+pb.count+'</td><td>P'+pb.amount.toLocaleString()+'</td><td>'+(pb.change?'P'+pb.change.toLocaleString():'-')+'</td></tr>';});
-    html+='</tbody></table></div>';
+    html+='</tbody></table></div></div>';
   }
   if(Object.keys(s.driverMap).length){
-    html+='<div class="report-section"><div class="report-title">Driver Summary</div><table class="report-table"><thead><tr><th>Driver</th><th>Runs</th><th>Distance</th><th>Orders</th></tr></thead><tbody>';
+    html+='<div class="report-section"><div class="report-title">Driver Summary</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>Driver</th><th>Runs</th><th>Distance</th><th>Orders</th></tr></thead><tbody>';
     Object.keys(s.driverMap).forEach(function(d){var dm=s.driverMap[d];html+='<tr><td><strong>'+d+'</strong></td><td>'+dm.runs+'</td><td>'+(Math.round(dm.km*10)/10)+' km</td><td>'+dm.orders+'</td></tr>';});
-    html+='</tbody></table></div>';
+    html+='</tbody></table></div></div>';
   }
   if(Object.keys(s.vehicleMap).length){
-    html+='<div class="report-section"><div class="report-title">Vehicle Summary</div><table class="report-table"><thead><tr><th>Vehicle</th><th>Runs</th><th>Distance</th><th>Fuel (L)</th><th>Fuel Cost</th><th>km/L</th></tr></thead><tbody>';
+    html+='<div class="report-section"><div class="report-title">Vehicle Summary</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>Vehicle</th><th>Runs</th><th>Distance</th><th>Fuel (L)</th><th>Fuel Cost</th><th>km/L</th></tr></thead><tbody>';
     Object.keys(s.vehicleMap).forEach(function(v){var vm=s.vehicleMap[v];var eff=vm.fuelL>0?Math.round((vm.km/vm.fuelL)*10)/10+' km/L':'-';html+='<tr><td><strong>'+v+'</strong></td><td>'+vm.runs+'</td><td>'+(Math.round(vm.km*10)/10)+' km</td><td>'+(vm.fuelL||'-')+'</td><td>'+(vm.fuelCost?'P'+vm.fuelCost.toLocaleString():'-')+'</td><td>'+eff+'</td></tr>';});
-    html+='</tbody></table></div>';
+    html+='</tbody></table></div></div>';
   }
   if(data.fuels.length){
-    html+='<div class="report-section"><div class="report-title">Fuel Log</div><table class="report-table"><thead><tr><th>Vehicle</th><th>Driver</th><th>Liters</th><th>Amount</th><th>Odometer</th><th>Station</th></tr></thead><tbody>';
+    html+='<div class="report-section"><div class="report-title">Fuel Log</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>Vehicle</th><th>Driver</th><th>Liters</th><th>Amount</th><th>Odometer</th><th>Station</th></tr></thead><tbody>';
     data.fuels.forEach(function(f){html+='<tr><td>'+f.vehicle+'</td><td>'+(f.driver||'-')+'</td><td>'+f.liters+' L</td><td>P'+f.amount.toLocaleString()+'</td><td>'+(f.odometer||'-')+'</td><td>'+(f.station||'-')+'</td></tr>';});
     html+='<tr style="font-weight:700;background:#F0FDF4"><td colspan="2">TOTAL</td><td>'+s.totalFuelLiters+' L</td><td>P'+s.totalFuelCost.toLocaleString()+'</td><td colspan="2"></td></tr>';
-    html+='</tbody></table></div>';
+    html+='</tbody></table></div></div>';
   }
   if(data.checklists.length){
-    html+='<div class="report-section"><div class="report-title">Checklist</div><table class="report-table"><thead><tr><th>Driver</th><th>Vehicle</th><th>Shift</th><th>Battery</th><th>Lights</th><th>Oil</th><th>Water</th><th>Brakes</th><th>Tires</th><th>Remarks</th></tr></thead><tbody>';
+    html+='<div class="report-section"><div class="report-title">Checklist</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>Driver</th><th>Vehicle</th><th>Shift</th><th>Battery</th><th>Lights</th><th>Oil</th><th>Water</th><th>Brakes</th><th>Tires</th><th>Remarks</th></tr></thead><tbody>';
     data.checklists.forEach(function(c){
       function badge(v){return v==='NG'?'<span class="ng-badge">NG</span>':'<span class="ok-badge">OK</span>';}
       html+='<tr><td>'+c.driver+'</td><td>'+c.vehicle+'</td><td>'+c.shift+'</td><td>'+badge(c.battery)+'</td><td>'+badge(c.lights)+'</td><td>'+badge(c.oil)+'</td><td>'+badge(c.water)+'</td><td>'+badge(c.brakes)+'</td><td>'+badge(c.tires)+'</td><td style="font-size:12px">'+(c.remarks||'-')+'</td></tr>';
     });
-    html+='</tbody></table></div>';
+    html+='</tbody></table></div></div>';
   }
   if(data.orders.length){
-    html+='<div class="report-section"><div class="report-title">Delivery Details</div><table class="report-table"><thead><tr><th>#</th><th>Business</th><th>Invoice</th><th>Driver</th><th>Payment</th><th>Amount</th><th>Change</th><th>Status</th><th>Time</th></tr></thead><tbody>';
+    html+='<div class="report-section"><div class="report-title">Delivery Details</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>#</th><th>Business</th><th>Invoice</th><th>Driver</th><th>Payment</th><th>Amount</th><th>Change</th><th>Status</th><th>Time</th></tr></thead><tbody>';
     data.orders.forEach(function(o,idx){html+='<tr><td>'+(idx+1)+'</td><td><strong>'+o.businessName+'</strong></td><td>'+(o.invoiceNum||'-')+'</td><td>'+(o.driver||'-')+'</td><td>'+o.payment+'</td><td>'+(o.billAmount?'P'+o.billAmount.toLocaleString():'-')+'</td><td>'+(o.change&&o.payment==='Cash'?'P'+o.change:'-')+'</td><td>'+o.status+'</td><td>'+(o.completeTime||'-')+'</td></tr>';});
-    html+='</tbody></table></div>';
+    html+='</tbody></table></div></div>';
   }
   html+='<div style="text-align:center;font-size:11px;color:#94A3B8;margin-top:16px;padding-top:12px;border-top:1px solid #E2E8F0">Generated: '+new Date().toLocaleString()+'</div>';
   html+='</div>';
@@ -1812,7 +1859,7 @@ function buildAttDriverTable() {
         '<td style="padding:4px;border:1px solid #E2E8F0"><input type="text" id="ov-nt-' + d + '" value="' + (ov.notes||'') + '" placeholder="Notes..." style="width:100%;border:none;font-size:12px;padding:4px"></td>' +
       '</tr>';
     }).join('') +
-    '</tbody></table>';
+    '</tbody></table></div>';
 }
 
 function saveAllOverrides() {
@@ -1907,6 +1954,9 @@ setInterval(function(){
 },30000);
 
 addFastRow();
+prefetchData().then(function() {
+  renderOrders();
+});
 loadOrders();
 </script>
 </body>
