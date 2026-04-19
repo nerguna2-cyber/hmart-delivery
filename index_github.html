@@ -442,7 +442,10 @@ function showNetworkStatus(msg) {
         <div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
             <div class="section-label" style="margin:0">Today's Orders</div>
-            <button class="btn-sm-off" onclick="loadOrders()">Refresh</button>
+            <div style="display:flex;gap:6px">
+              <button class="btn-blue-off" onclick="saveAllAssignments()" id="btn-save-all-assign" style="display:none">Save All</button>
+              <button class="btn-sm-off" onclick="loadOrders()">Refresh</button>
+            </div>
           </div>
           <div id="orders-list"><div class="empty">Loading...</div></div>
         </div>
@@ -865,6 +868,38 @@ function renderOrders() {
     });
   });
   document.getElementById('orders-list').innerHTML = html;
+  // Show Save All button only if there are pending/in-progress orders with reassign dropdowns
+  var hasPending = orders.some(function(o) { return o.status !== 'COMPLETED'; });
+  document.getElementById('btn-save-all-assign').style.display = hasPending ? 'block' : 'none';
+}
+
+async function saveAllAssignments() {
+  var btn = document.getElementById('btn-save-all-assign');
+  btn.textContent = 'Saving...'; btn.disabled = true;
+  var tasks = [];
+  allOrders.forEach(function(o) {
+    if(o.status === 'COMPLETED') return;
+    var sel = document.getElementById('ra-' + o.rowNum);
+    if(!sel || !sel.value) return;
+    if(sel.value === o.driver) return; // no change
+    tasks.push({ orderId: o.orderId, driver: sel.value });
+  });
+  if(!tasks.length) {
+    toast('toast-ord', 'No changes to save', false);
+    btn.textContent = 'Save All'; btn.disabled = false;
+    return;
+  }
+  try {
+    var results = await Promise.all(tasks.map(function(t) {
+      return apiPost('assignDriver', { orderId: t.orderId, driver: t.driver });
+    }));
+    var success = results.filter(function(r) { return r && r.success; }).length;
+    toast('toast-ord', success + ' assignment(s) saved!', true);
+    loadOrders();
+  } catch(e) {
+    toast('toast-ord', 'Error: ' + e.message, false);
+  }
+  btn.textContent = 'Save All'; btn.disabled = false;
 }
 
 async function reassign(orderId, rowNum) {
@@ -1012,10 +1047,16 @@ function renderDelCards(orders) {
 }
 
 async function startDel(orderId) {
-  if(activeDelId) { toast('drv-toast', 'Complete current delivery first!', false); return; }
-  activeDelId = orderId;
-  var r = await apiPost('setOrderInProgress', { orderId: orderId });
-  if(r && r.success) { toast('drv-toast', 'Delivery started!', true); drvLoadData(); }
+  // Toggle: if already IN PROGRESS, cancel it back to PENDING
+  var order = (drvOrders || []).find ? (drvOrders || []).find(function(o) { return o.orderId === orderId; }) : null;
+  if(!order) { drvLoadData(); return; }
+  if(order.status === 'IN PROGRESS') {
+    var r = await apiPost('cancelOrderProgress', { orderId: orderId });
+    if(r && r.success) { toast('drv-toast', 'Cancelled', false); drvLoadData(); }
+  } else {
+    var r2 = await apiPost('setOrderInProgress', { orderId: orderId });
+    if(r2 && r2.success) { toast('drv-toast', 'Started!', true); drvLoadData(); }
+  }
 }
 
 async function completeDel(orderId) {
