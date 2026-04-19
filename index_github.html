@@ -2250,9 +2250,9 @@ setInterval(function(){
 
 addFastRow();
 loadOrders();
-</script>
-</body>
-</html>// ---- SPECIAL RUN ----
+
+
+// ---- SPECIAL RUN ----
 var selectedSpecialType = '';
 var specialRunActive = false;
 
@@ -2351,3 +2351,8 @@ async function specialArrive() {
     } else toast('drv-toast', (r && r.message) || 'Error', false);
   } catch(e) { btn.textContent = 'Complete Special Run ✓'; btn.disabled = false; toast('drv-toast', 'Error: ' + e.message, false); }
 }
+
+</script>
+
+</body>
+</html>
