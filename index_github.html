@@ -1145,7 +1145,14 @@ async function saveAllOrders() {
 async function loadOrders() {
   document.getElementById('orders-list').innerHTML = '<div class="empty">Loading...</div>';
   try {
-    allOrders = await apiGet('getTodayOrders');
+    var officeData = await apiGet('getOfficeData');
+    allOrders = (officeData && officeData.orders) || [];
+    var runs = (officeData && officeData.runs) || [];
+    // Update on-the-way tracker
+    _onTheWayIds = {};
+    runs.filter(function(r) { return r.status === 'IN PROGRESS'; }).forEach(function(r) {
+      if(r.orderIds) r.orderIds.forEach(function(id) { _onTheWayIds[id] = r.driver; });
+    });
     renderOrders();
   } catch(e) { document.getElementById('orders-list').innerHTML = '<div class="empty">Error loading</div>'; }
 }
@@ -1167,7 +1174,8 @@ function renderOrders() {
         '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">' +
           '<span style="font-size:14px;font-weight:600">' + o.businessName + '</span>' +
           (o.invoiceNum ? '<span style="font-size:12px;font-weight:600;color:#059669;background:#D1FAE5;padding:1px 7px;border-radius:4px">' + o.invoiceNum + '</span>' : '') +
-          (status === 'PENDING' ? '<span class="status-pending">PENDING</span>' : '') +
+          (status === 'PENDING' && _onTheWayIds[o.orderId] ? '<span class="status-progress" style="background:#7C3AED">▶ ON THE WAY</span>' : '') +
+          (status === 'PENDING' && !_onTheWayIds[o.orderId] ? '<span class="status-pending">PENDING</span>' : '') +
           (status === 'IN PROGRESS' ? '<span class="status-progress">▶ IN PROGRESS</span>' : '') +
           (status === 'COMPLETED' ? '<span class="status-done">✓ DONE</span>' : '') +
           (isBiz ? '<span class="biz-tag">Business</span>' : '<span class="personal-tag">Personal</span>') +
@@ -1594,11 +1602,18 @@ function switchTab(t) {
   else if(t === 'fuel') loadFuel();
 }
 
+var _onTheWayIds = {}; // global: orderId -> driver, updated on loadLive
+
 async function loadLive() {
   try {
     var data = await apiGet('getOfficeData');
     var runs   = (data && data.runs)   || [];
     var orders = (data && data.orders) || [];
+    // Update global on-the-way tracker
+    _onTheWayIds = {};
+    runs.filter(function(r) { return r.status === 'IN PROGRESS'; }).forEach(function(r) {
+      if(r.orderIds) r.orderIds.forEach(function(id) { _onTheWayIds[id] = r.driver; });
+    });
     var done   = runs.filter(function(r) { return r.status === 'COMPLETED'; });
     var totalKm    = done.reduce(function(s,r) { return s + (parseFloat(r.distKm)||0); }, 0);
     var compOrds   = orders.filter(function(o) { return o.status === 'COMPLETED'; });
@@ -2381,4 +2396,48 @@ async function specialArrive() {
 </script>
 
 </body>
-</html>
+</html    var pend   = orders.filter(function(o) { return o.status === 'PENDING'; });
+
+    // Build on-the-way map from active runs
+    var onTheWayIds = {};
+    active.forEach(function(r) {
+      if(r.orderIds) r.orderIds.forEach(function(id) { onTheWayIds[id] = r.driver; });
+    });
+    // Update global tracker too
+    _onTheWayIds = Object.assign({}, onTheWayIds);
+
+    var onTheWay    = pend.filter(function(o) { return onTheWayIds[o.orderId]; });
+    var trulyPending = pend.filter(function(o) { return !onTheWayIds[o.orderId]; });
+
+    if(onTheWay.length) {
+      html += '<div class="section-label">On the Way (' + onTheWay.length + ')</div>';
+      onTheWay.forEach(function(o) {
+        html += '<div class="order-item order-item-progress">' +
+          '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+            '<span style="font-size:14px;font-weight:600">' + o.businessName + '</span>' +
+            '<span class="status-progress">▶ ON THE WAY</span>' +
+            payBadge(o.payment||'Cash') +
+            '<span style="background:#EFF6FF;color:#1F4E79;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;border:1px solid #BFDBFE">' + (onTheWayIds[o.orderId]||'') + '</span>' +
+          '</div>' +
+          (o.billAmount ? '<div style="font-size:12px;color:#64748B;margin-top:3px">Bill: P' + o.billAmount + (o.change && o.payment==='Cash' ? ' | Change: P' + o.change : '') + '</div>' : '') +
+          (o.notes ? '<div style="background:#FEF3C7;border-radius:5px;padding:5px 8px;font-size:12px;color:#92400E;margin-top:6px">' + o.notes + '</div>' : '') +
+        '</div>';
+      });
+    }
+
+    if(trulyPending.length) {
+      html += '<div class="section-label">Pending <span class="notif-dot"></span></div>';
+      trulyPending.forEach(function(o) {
+        html += '<div class="order-item ' + (o.invoiceNum ? 'order-item-biz' : 'order-item-personal') + '">' +
+          '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+            '<span style="font-size:14px;font-weight:600">' + o.businessName + '</span>' +
+            '<span class="status-pending">PENDING</span>' +
+            payBadge(o.payment||'Cash') +
+            (o.driver ? '<span style="background:#EFF6FF;color:#1F4E79;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;border:1px solid #BFDBFE">' + o.driver + '</span>' : '<span style="font-size:11px;color:#EF4444;font-weight:600">Unassigned</span>') +
+          '</div>' +
+          (o.notes ? '<div style="background:#FEF3C7;border-radius:5px;padding:5px 8px;font-size:12px;color:#92400E;margin-top:6px">' + o.notes + '</div>' : '') +
+        '</div>';
+      });
+    }
+
+>
