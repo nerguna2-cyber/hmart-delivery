@@ -173,10 +173,25 @@ html{width:100%;overflow-x:hidden}
 @media print{
   body *{visibility:hidden}
   #print-area,#print-area *,#att-print-area,#att-print-area *{visibility:visible}
-  #print-area{position:fixed;top:0;left:0;width:100%;padding:20px}
-  #att-print-area{position:fixed;top:0;left:0;width:100%;padding:20px}
-  .report-section{box-shadow:none;border:1px solid #E2E8F0;break-inside:avoid}
+  #print-area{
+    position:absolute;top:0;left:0;width:100%;
+    padding:16px;box-sizing:border-box
+  }
+  #att-print-area{
+    position:absolute;top:0;left:0;width:100%;
+    padding:16px;box-sizing:border-box
+  }
+  .report-section{
+    box-shadow:none;
+    border:1px solid #E2E8F0;
+    break-inside:avoid;
+    page-break-inside:avoid;
+    margin-bottom:12px
+  }
+  .report-table{width:100%;font-size:11px}
+  .report-table th,.report-table td{padding:5px 7px}
   button{display:none!important}
+  @page{margin:15mm}
 }
 </style>
 </head>
@@ -184,7 +199,7 @@ html{width:100%;overflow-x:hidden}
 
 <!-- API URL — change this to your deployed Apps Script URL -->
 <script>
-var API_URL = 'https://script.google.com/macros/s/AKfycbzmD1teXZs4WvT65y5B0oy_aH_bKUnqffgZBNQnAmNHESVxSfeWIIwlnSwGnjBP8N9SLg/exec';
+var API_URL = 'https://script.google.com/macros/s/AKfycbxiuxPf6fuLuRiu3C-heEjhjzfaEkBW49MiQWm3omsUDT0hFEgAIpYOnYxdtIr0lTbCHg/exec';
 
 // ============================================================
 // OFFLINE QUEUE + CACHE SYSTEM
@@ -602,15 +617,10 @@ function showNetworkStatus(msg, color) {
             <button onclick="printAttendance()" style="width:100%;padding:10px;font-size:13px;font-weight:600;background:#374151;color:#fff;border:none;border-radius:8px;cursor:pointer">🖨 Print Today's Schedule</button>
           </div>
           <div class="off-card" style="margin-top:0">
-            <div class="card-title">Override Individual Driver</div>
-            <div class="off-field"><label>Driver</label><select id="att-driver"><option value="">-- Select --</option></select></div>
-            <div class="row2">
-              <div class="off-field"><label>Break Start</label><input type="time" id="att-break-start"></div>
-              <div class="off-field"><label>Break End</label><input type="time" id="att-break-end"></div>
-            </div>
-            <div class="off-field"><label>Clock Out (override)</label><input type="time" id="att-clockout"></div>
-            <div class="off-field"><label>Notes</label><input type="text" id="att-notes" placeholder="e.g. Early leave, special schedule"></div>
-            <button class="btn-primary-off" onclick="saveDriverOverride()">Save Override</button>
+            <div class="card-title">Individual Driver Schedule</div>
+            <div style="font-size:12px;color:#64748B;margin-bottom:10px">Edit each driver's times. Blank = use default above.</div>
+            <div id="att-driver-table"><div class="empty">Loading...</div></div>
+            <button class="btn-primary-off" style="margin-top:10px" onclick="saveAllOverrides()">Save All Schedules</button>
           </div>
         </div>
         <div>
@@ -1217,10 +1227,16 @@ function renderDelCards(orders) {
         (isDone ? '<div style="font-size:12px;color:#059669;font-weight:600">' + o.completeTime + '</div>' : '') +
       '</div>' +
       (o.notes ? '<div class="del-notes">Note: ' + o.notes + '</div>' : '') +
-      (isActive ? '<div style="background:#2563EB;color:#fff;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:700;text-align:center;margin-top:8px;letter-spacing:0.05em">▶ IN PROGRESS</div>' : '') +
-      (!isDone && !isLocked && !isActive ? '<button class="btn-start" onclick="startDel(\'' + o.orderId + '\')">Start Delivery</button>' : '') +
-      (isActive ? '<button class="btn-complete" onclick="completeDel(\'' + o.orderId + '\')">Mark as Delivered &#10003;</button>' : '') +
-      (isLocked ? '<div class="locked-msg">Complete current delivery first</div>' : '') +
+      (!isDone && !isLocked && !isActive ?
+        '<button class="btn-start" onclick="startDel(\'' + o.orderId + '\')" style="margin-top:10px">▶ Start Delivery</button>'
+      : '') +
+      (isActive ?
+        '<div style="margin-top:10px;display:flex;gap:8px">' +
+          '<button onclick="startDel(\'' + o.orderId + '\')" style="flex:1;padding:12px 6px;font-size:13px;font-weight:700;background:#EF4444;color:#fff;border:none;border-radius:8px;cursor:pointer;min-height:48px">✕ Cancel</button>' +
+          '<button class="btn-complete" onclick="completeDel(\'' + o.orderId + '\')" style="flex:2">Mark as Delivered ✓</button>' +
+        '</div>'
+      : '') +
+      (isLocked ? '<div class="locked-msg">Another delivery in progress</div>' : '') +
     '</div>';
   }).join('');
   document.getElementById('drv-del-list').innerHTML = html;
@@ -1305,7 +1321,7 @@ function switchTab(t) {
   document.getElementById('tab-' + t).classList.add('active');
   if(t === 'live') loadLive();
   else if(t === 'vehicles') loadVehicles();
-  else if(t === 'attendance') { loadAttendance(); loadAttDriverSelect(); }
+  else if(t === 'attendance') { loadAttendance(); buildAttDriverTable(); }
   else if(t === 'fuel') loadFuel();
 }
 
