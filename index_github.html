@@ -1072,11 +1072,6 @@ function showDrvSched(id) {
   var bStart = (actualBreaks && actualBreaks[d]) || sc.breakStart;
   var bMins  = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
   var onBreak = bMins > -1 && nowMins >= bMins && nowMins < bMins+60;
-  var onRoad  = false;
-  // Check if driver is on road from cached data
-  if(typeof allOrders !== 'undefined') {
-    // use cached run data if available
-  }
   var statusIcon = onBreak ? '☕ On Break' : '✓ Available';
   var statusColor = onBreak ? '#92400E' : '#065F46';
   var statusBg    = onBreak ? '#FEF3C7' : '#F0FDF4';
@@ -1634,7 +1629,6 @@ async function loadLive() {
       var bStart = actualB || sched.breakStart;
       var bsMins = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
       var onBreak = !onRoad && bsMins > -1 && nowMins >= bsMins && nowMins < bsMins + 60;
-      var beMins = -1; // kept for reference
       var statusColor = onRoad ? '#1D4ED8' : onBreak ? '#F59E0B' : '#059669';
       var statusText  = onRoad ? '🚚 On Road' : onBreak ? '☕ On Break' : '✓ Available';
       var activeRun   = onRoad ? active.find(function(r) { return r.driver === d; }) : null;
@@ -1941,12 +1935,10 @@ function renderReport(data) {
 function printReport(){window.print();}
 
 // ---- ATTENDANCE ----
-// driverSchedules: { ROMEL: { clockin:'08:00', breakStart:'12:00', clockout:'17:00', notes:'' }, ... }
 var driverSchedules = {};
-var actualBreaks = {}; // { ROMEL: '13:15' } — actual break start today
-
-var actualClockouts = {};   // { ROMEL: '18:20' }
-var overtimeBalance = {};   // { ROMEL: 20 } minutes
+var actualBreaks = {};
+var actualClockouts = {};
+var overtimeBalance = {};
 
 (function(){
   try {
@@ -1966,14 +1958,17 @@ function getDriverSched(driver) {
   return driverSchedules[driver] || { clockin:'08:00', breakStart:'12:00', clockout:'17:00', notes:'' };
 }
 
+function isOfficeHours() {
+  var h = new Date().getHours();
+  return h >= 7 && h < 20;
+}
+
 function isOnBreakNow(driver) {
   var now = new Date();
   var nowMins = now.getHours()*60 + now.getMinutes();
-  // Use actual break if recorded, else scheduled
   var bStart = actualBreaks[driver] || getDriverSched(driver).breakStart;
   if(!bStart) return false;
   var bMins = parseInt(bStart.split(':')[0])*60 + parseInt(bStart.split(':')[1]);
-  // Break assumed to be 1 hour
   return nowMins >= bMins && nowMins < bMins + 60;
 }
 
@@ -2000,7 +1995,6 @@ function buildAttDriverTable() {
     }).join('') +
     '</tbody></table></div>';
 
-  // populate break driver select
   var sel = document.getElementById('att-break-driver');
   if(sel) {
     sel.innerHTML = '<option value="">-- Select --</option>' +
@@ -2046,12 +2040,11 @@ function saveActualTimes() {
   if(clockout) {
     actualClockouts[driver] = clockout;
     try { localStorage.setItem('hmart_actual_clockouts_' + attDate, JSON.stringify(actualClockouts)); } catch(e) {}
-    // Calculate overtime
     var sched = getDriverSched(driver);
     if(sched.clockout) {
       var schedMins = parseInt(sched.clockout.split(':')[0])*60 + parseInt(sched.clockout.split(':')[1]);
       var actMins   = parseInt(clockout.split(':')[0])*60 + parseInt(clockout.split(':')[1]);
-      var diff = actMins - schedMins; // positive = overtime, negative = undertime
+      var diff = actMins - schedMins;
       if(!overtimeBalance[driver]) overtimeBalance[driver] = 0;
       overtimeBalance[driver] += diff;
       try { localStorage.setItem('hmart_overtime_balance', JSON.stringify(overtimeBalance)); } catch(e) {}
@@ -2070,6 +2063,7 @@ function renderOvertimeList() {
   var el = document.getElementById('overtime-list');
   if(!el) return;
   var hasData = false;
+  var C_GREEN = '#059669';
   var html = DRIVERS.map(function(d) {
     var bal = overtimeBalance[d] || 0;
     if(bal === 0) return '';
@@ -2089,20 +2083,13 @@ function renderOvertimeList() {
       '</div>' +
     '</div>';
   }).join('');
-  var C_GREEN = '#059669';
   if(!hasData) el.innerHTML = '<div class="empty" style="font-size:12px">No overtime/undertime recorded</div>';
   else el.innerHTML = html;
 }
 
 function useOTCredit(driver, apply) {
-  // apply=true: driver uses their credit (reduce balance)
-  // apply=false: clear balance
-  if(!confirm(apply ? driver + ': Apply overtime credit as undertime today?' : 'Clear ' + driver + ''s balance?')) return;
-  if(!apply) {
-    overtimeBalance[driver] = 0;
-  }
-  // If applying, it's recorded as used - balance clears
-  if(apply) overtimeBalance[driver] = 0;
+  if(!confirm(apply ? driver + ': Apply overtime credit as undertime today?' : 'Clear ' + driver + '\'s balance?')) return;
+  overtimeBalance[driver] = 0;
   try { localStorage.setItem('hmart_overtime_balance', JSON.stringify(overtimeBalance)); } catch(e) {}
   renderOvertimeList();
   toast('toast-att', driver + ' balance updated', true);
@@ -2120,11 +2107,9 @@ function calcHours(start, end) {
 function loadAttendance() {
   buildAttDriverTable();
 
-  // Init date input to today if empty
   var dateEl = document.getElementById('att-date');
   if(dateEl) {
     if(!dateEl.value) dateEl.value = new Date().toISOString().slice(0,10);
-    // Load actual times for selected date
     var selDate = dateEl.value;
     try {
       var ab = localStorage.getItem('hmart_actual_breaks_' + selDate);
@@ -2144,11 +2129,9 @@ function loadAttendance() {
     var bStart = actualB || sc.breakStart;
     var bMins = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
     var onBreak = bMins > -1 && nowMins >= bMins && nowMins < bMins + 60;
-    var noBreakRecorded = !actualB && !sc.breakStart;
     var statusColor = onBreak ? '#F59E0B' : '#059669';
     var statusText  = onBreak ? '☕ On Break' : '✓ Available';
 
-    // Warning: if scheduled break was > 30min ago and no actual break recorded
     var schedBMins = sc.breakStart ? parseInt(sc.breakStart.split(':')[0])*60+parseInt(sc.breakStart.split(':')[1]) : -1;
     var breakOverdue = !actualB && schedBMins > -1 && nowMins > schedBMins + 30;
 
@@ -2193,19 +2176,7 @@ function printAttendance() {
   setTimeout(function() { document.getElementById('att-print-area').style.display = 'none'; }, 1000);
 }
 
-setInterval(function(){
-  var liveTab=document.getElementById('tab-live');
-  if(liveTab&&liveTab.classList.contains('active')) loadLive();
-},30000);
-
-addFastRow();
-prefetchData().then(function() {
-  renderOrders();
-});
-loadOrders();
-</script>
-</body>
-</html>// ---- SPECIAL RUN ----
+// ---- SPECIAL RUN ----
 var selectedSpecialType = '';
 var specialRunActive = false;
 
@@ -2303,3 +2274,17 @@ async function specialArrive() {
     } else toast('drv-toast', (r && r.message) || 'Error', false);
   } catch(e) { btn.textContent = 'Complete Special Run ✓'; btn.disabled = false; toast('drv-toast', 'Error: ' + e.message, false); }
 }
+
+setInterval(function(){
+  var liveTab=document.getElementById('tab-live');
+  if(liveTab&&liveTab.classList.contains('active')) loadLive();
+},30000);
+
+addFastRow();
+prefetchData().then(function() {
+  renderOrders();
+});
+loadOrders();
+</script>
+</body>
+</html>
