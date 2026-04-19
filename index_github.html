@@ -977,7 +977,7 @@ async function saveAllAssignments() {
   btn.textContent = 'Saving...'; btn.disabled = true;
   var tasks = [];
   allOrders.forEach(function(o) {
-    if(o.status === 'COMPLETED') return;
+    if(o.status !== 'PENDING') return; // only PENDING can be reassigned
     var sel = document.getElementById('ra-' + o.rowNum);
     if(!sel || !sel.value) return;
     if(sel.value === o.driver) return; // no change
@@ -1056,15 +1056,23 @@ async function drvLoadData() {
 
     var activeRuns   = runs.filter(function(r) { return r.status === 'IN PROGRESS'; });
     var busyVehicles = activeRuns.map(function(r) { return r.vehicle; });
+    var busyPlates   = activeRuns.map(function(r) { return r.plate; });
 
     var vSel = document.getElementById('drv-vehicle');
     if(vSel) {
       Array.from(vSel.options).forEach(function(opt) {
-        if(!opt.value) return;
-        var vName = opt.text.split(' (')[0];
-        var isBusy = busyVehicles.indexOf(vName) > -1;
+        if(!opt.value || opt.label === undefined) return;
+        // Match by vehicle name OR plate
+        var optText = opt.text.replace(' [IN USE]','');
+        var optName = optText.split(' (')[0].trim();
+        var optPlate = (optText.match(/\(([^)]+)\)/) || [])[1] || '';
+        var isBusy = busyVehicles.some(function(v) {
+          return v && (v.trim() === optName || v.trim().indexOf(optName) > -1);
+        }) || busyPlates.some(function(p) {
+          return p && optPlate && p.trim() === optPlate.trim();
+        });
         opt.disabled = isBusy;
-        opt.text = opt.text.replace(' [IN USE]','') + (isBusy ? ' [IN USE]' : '');
+        opt.text = optText + (isBusy ? ' [IN USE]' : '');
         opt.style.color = isBusy ? '#DC2626' : '';
       });
     }
