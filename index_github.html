@@ -10,6 +10,7 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F0F4F8;min-height:100vh;-webkit-text-size-adjust:100%}
+input[type=time]{-webkit-appearance:none;appearance:none}
 html{width:100%;overflow-x:hidden}
 
 /* MODE SELECT */
@@ -40,7 +41,7 @@ html{width:100%;overflow-x:hidden}
 .status-progress{display:inline-block;background:#1D4ED8;color:#fff;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:700;letter-spacing:0.05em}
 .status-done{display:inline-block;background:#059669;color:#fff;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:700;letter-spacing:0.05em}
 .biz-tag{background:#D1FAE5;color:#065F46;font-size:11px;font-weight:600;padding:1px 7px;border-radius:10px}
-.personal-tag{background:#DBEAFE;color:#1E40AF;font-size:11px;font-weight:600;padding:1px 7px;border-radius:10px}
+.personal-tag{background:#EDE9FE;color:#6D28D9;font-size:11px;font-weight:600;padding:1px 7px;border-radius:10px}
 .empty{text-align:center;padding:24px;color:#94A3B8;font-size:14px}
 .section-label{font-size:11px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:0.06em;margin:14px 0 8px}
 .divider{height:1px;background:#F1F5F9;margin:12px 0}
@@ -64,7 +65,7 @@ html{width:100%;overflow-x:hidden}
 .info-box{background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:10px 12px;font-size:14px;color:#1E40AF;margin-bottom:12px}
 .order-preview{background:#F8FAFC;border-radius:8px;padding:12px;margin-bottom:8px}
 .order-biz{border-left:4px solid #059669;background:#F0FDF4}
-.order-personal{border-left:4px solid #3B82F6;background:#EFF6FF}
+.order-personal{border-left:4px solid #7C3AED;background:#F5F3FF}
 .del-card{background:#fff;border:2px solid #E2E8F0;border-radius:12px;padding:16px;margin-bottom:10px}
 .del-card.active{border-color:#3B82F6;background:#EFF6FF;box-shadow:0 0 0 3px rgba(59,130,246,0.3)}
 .del-card.active .del-icon-active{animation:activeGlow 1.2s ease-in-out infinite}
@@ -110,7 +111,7 @@ html{width:100%;overflow-x:hidden}
 .stat-lbl{font-size:10px;color:#94A3B8;margin-top:2px;text-transform:uppercase}
 .order-item{background:#fff;border:1px solid #E2E8F0;border-radius:9px;padding:12px 14px;margin-bottom:8px}
 .order-item-biz{border-left:4px solid #059669;background:#F0FDF4}
-.order-item-personal{border-left:4px solid #3B82F6;background:#EFF6FF}
+.order-item-personal{border-left:4px solid #7C3AED;background:#F5F3FF}
 .order-item-progress{border-left:4px solid #93C5FD;background:#EFF6FF}
 .order-item-done{border-left:4px solid #6EE7B7;background:#F0FDF4;opacity:0.8}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -694,25 +695,37 @@ function showNetworkStatus(msg, color) {
             </div>
           </div>
           <div class="off-card">
-            <div class="card-title">Record Actual Break Time</div>
-            <div style="font-size:12px;color:#64748B;margin-bottom:10px">Enter when driver actually took their break (as told to office).</div>
+            <div class="card-title">Record Actual Times</div>
+            <div style="font-size:12px;color:#64748B;margin-bottom:10px">Update when driver actually took break or clocked out late.</div>
+            <div class="off-field">
+              <label>Driver</label>
+              <select id="att-break-driver"><option value="">-- Select --</option></select>
+            </div>
             <div class="row2">
-              <div class="off-field"><label>Driver</label>
-                <select id="att-break-driver"><option value="">-- Select --</option></select>
-              </div>
               <div class="off-field"><label>Actual Break Start</label>
-                <input type="time" id="att-actual-break">
+                <input type="time" id="att-actual-break" placeholder="e.g. 13:00">
+              </div>
+              <div class="off-field"><label>Actual Clock Out</label>
+                <input type="time" id="att-actual-clockout" placeholder="e.g. 18:20">
               </div>
             </div>
-            <button class="btn-primary-off" onclick="saveActualBreak()">Save Actual Break</button>
+            <button class="btn-primary-off" onclick="saveActualTimes()">Save Actual Times</button>
+          </div>
+          <div class="off-card">
+            <div class="card-title">Overtime Balance</div>
+            <div style="font-size:12px;color:#64748B;margin-bottom:8px">Drivers who work past scheduled time accumulate overtime credit.</div>
+            <div id="overtime-list"><div class="empty" style="font-size:12px">Select a date to view</div></div>
           </div>
         </div>
 
         <!-- RIGHT: today's status -->
         <div>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-            <div class="section-label" style="margin:0">Today's Driver Status</div>
-            <button class="btn-sm-off" onclick="loadAttendance()">Refresh</button>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+            <div class="section-label" style="margin:0">Driver Status</div>
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="date" id="att-date" style="padding:5px 8px;border:1px solid #D1D5DB;border-radius:6px;font-size:12px" onchange="loadAttendance()">
+              <button class="btn-sm-off" onclick="loadAttendance()">Refresh</button>
+            </div>
           </div>
           <div id="att-list"><div class="empty">Loading...</div></div>
         </div>
@@ -1932,12 +1945,20 @@ function printReport(){window.print();}
 var driverSchedules = {};
 var actualBreaks = {}; // { ROMEL: '13:15' } — actual break start today
 
+var actualClockouts = {};   // { ROMEL: '18:20' }
+var overtimeBalance = {};   // { ROMEL: 20 } minutes
+
 (function(){
   try {
     var ds = localStorage.getItem('hmart_driver_schedules');
     if(ds) driverSchedules = JSON.parse(ds);
-    var ab = localStorage.getItem('hmart_actual_breaks_' + new Date().toISOString().slice(0,10));
+    var today = new Date().toISOString().slice(0,10);
+    var ab = localStorage.getItem('hmart_actual_breaks_' + today);
     if(ab) actualBreaks = JSON.parse(ab);
+    var ac = localStorage.getItem('hmart_actual_clockouts_' + today);
+    if(ac) actualClockouts = JSON.parse(ac);
+    var ob = localStorage.getItem('hmart_overtime_balance');
+    if(ob) overtimeBalance = JSON.parse(ob);
   } catch(e) {}
 })();
 
@@ -2008,16 +2029,83 @@ function saveAllOverrides() {
   loadAttendance();
 }
 
-function saveActualBreak() {
-  var driver = document.getElementById('att-break-driver').value;
-  var time   = document.getElementById('att-actual-break').value;
+function saveActualTimes() {
+  var driver   = document.getElementById('att-break-driver').value;
+  var breakT   = document.getElementById('att-actual-break').value;
+  var clockout = document.getElementById('att-actual-clockout').value;
   if(!driver) { toast('toast-att', 'Select a driver', false); return; }
-  if(!time)   { toast('toast-att', 'Enter break time', false); return; }
-  actualBreaks[driver] = time;
-  var today = new Date().toISOString().slice(0,10);
-  try { localStorage.setItem('hmart_actual_breaks_' + today, JSON.stringify(actualBreaks)); } catch(e) {}
-  toast('toast-att', driver + ' break recorded at ' + time, true);
+  if(!breakT && !clockout) { toast('toast-att', 'Enter at least one time', false); return; }
+
+  var attDate = document.getElementById('att-date') ? document.getElementById('att-date').value : new Date().toISOString().slice(0,10);
+
+  if(breakT) {
+    actualBreaks[driver] = breakT;
+    try { localStorage.setItem('hmart_actual_breaks_' + attDate, JSON.stringify(actualBreaks)); } catch(e) {}
+  }
+
+  if(clockout) {
+    actualClockouts[driver] = clockout;
+    try { localStorage.setItem('hmart_actual_clockouts_' + attDate, JSON.stringify(actualClockouts)); } catch(e) {}
+    // Calculate overtime
+    var sched = getDriverSched(driver);
+    if(sched.clockout) {
+      var schedMins = parseInt(sched.clockout.split(':')[0])*60 + parseInt(sched.clockout.split(':')[1]);
+      var actMins   = parseInt(clockout.split(':')[0])*60 + parseInt(clockout.split(':')[1]);
+      var diff = actMins - schedMins; // positive = overtime, negative = undertime
+      if(!overtimeBalance[driver]) overtimeBalance[driver] = 0;
+      overtimeBalance[driver] += diff;
+      try { localStorage.setItem('hmart_overtime_balance', JSON.stringify(overtimeBalance)); } catch(e) {}
+    }
+  }
+
+  var msg = driver + ' updated';
+  if(breakT) msg += ' | Break: ' + breakT;
+  if(clockout) msg += ' | Out: ' + clockout;
+  toast('toast-att', msg, true);
   loadAttendance();
+  renderOvertimeList();
+}
+
+function renderOvertimeList() {
+  var el = document.getElementById('overtime-list');
+  if(!el) return;
+  var hasData = false;
+  var html = DRIVERS.map(function(d) {
+    var bal = overtimeBalance[d] || 0;
+    if(bal === 0) return '';
+    hasData = true;
+    var isOT = bal > 0;
+    var h = Math.floor(Math.abs(bal)/60);
+    var m = Math.abs(bal) % 60;
+    var label = isOT ? 'OT Credit' : 'Undertime';
+    var color = isOT ? C_GREEN : '#DC2626';
+    var bg    = isOT ? '#D1FAE5' : '#FEE2E2';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:' + bg + ';border-radius:6px;margin-bottom:5px">' +
+      '<span style="font-size:13px;font-weight:600">' + d + '</span>' +
+      '<div style="text-align:right">' +
+        '<div style="font-size:12px;font-weight:700;color:' + color + '">' + (isOT?'+':'−') + (h?h+'h ':'') + m + 'm ' + label + '</div>' +
+        (isOT ? '<button onclick="useOTCredit(\'' + d + '\',true)" style="font-size:10px;border:none;background:' + color + ';color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer;margin-top:2px">Apply Undertime</button>' : '') +
+        '<button onclick="useOTCredit(\'' + d + '\',false)" style="font-size:10px;border:none;background:#64748B;color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer;margin-top:2px;margin-left:3px">Clear</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+  var C_GREEN = '#059669';
+  if(!hasData) el.innerHTML = '<div class="empty" style="font-size:12px">No overtime/undertime recorded</div>';
+  else el.innerHTML = html;
+}
+
+function useOTCredit(driver, apply) {
+  // apply=true: driver uses their credit (reduce balance)
+  // apply=false: clear balance
+  if(!confirm(apply ? driver + ': Apply overtime credit as undertime today?' : 'Clear ' + driver + ''s balance?')) return;
+  if(!apply) {
+    overtimeBalance[driver] = 0;
+  }
+  // If applying, it's recorded as used - balance clears
+  if(apply) overtimeBalance[driver] = 0;
+  try { localStorage.setItem('hmart_overtime_balance', JSON.stringify(overtimeBalance)); } catch(e) {}
+  renderOvertimeList();
+  toast('toast-att', driver + ' balance updated', true);
 }
 
 function calcHours(start, end) {
@@ -2031,6 +2119,23 @@ function calcHours(start, end) {
 
 function loadAttendance() {
   buildAttDriverTable();
+
+  // Init date input to today if empty
+  var dateEl = document.getElementById('att-date');
+  if(dateEl) {
+    if(!dateEl.value) dateEl.value = new Date().toISOString().slice(0,10);
+    // Load actual times for selected date
+    var selDate = dateEl.value;
+    try {
+      var ab = localStorage.getItem('hmart_actual_breaks_' + selDate);
+      actualBreaks = ab ? JSON.parse(ab) : {};
+      var ac = localStorage.getItem('hmart_actual_clockouts_' + selDate);
+      actualClockouts = ac ? JSON.parse(ac) : {};
+    } catch(e) { actualBreaks = {}; actualClockouts = {}; }
+  }
+
+  renderOvertimeList();
+
   var now = new Date();
   var nowMins = now.getHours()*60 + now.getMinutes();
   var html = DRIVERS.map(function(d) {
@@ -2057,6 +2162,7 @@ function loadAttendance() {
         (bStart ? '<span>' + (actualB ? '☕ Actual Break: ' : '☕ Sched Break: ') + '<strong>' + bStart + '</strong></span>' : '<span style="color:#94A3B8">No break set</span>') +
         (sc.clockout ? '<span>🔴 Out: <strong>' + sc.clockout + '</strong></span>' : '') +
         (sc.clockin && sc.clockout ? '<span style="color:#1F4E79;font-weight:600">Est: ' + calcHours(sc.clockin, sc.clockout) + '</span>' : '') +
+        (actualClockouts[d] && actualClockouts[d] !== sc.clockout ? '<span style="color:#DC2626;font-weight:600">Actual Out: ' + actualClockouts[d] + '</span>' : '') +
       '</div>' +
       (breakOverdue ? '<div style="background:#FEE2E2;border-radius:5px;padding:5px 8px;font-size:11px;color:#DC2626;font-weight:600;margin-top:6px">⚠ Break time passed — actual break not yet recorded</div>' : '') +
       (sc.notes ? '<div style="font-size:11px;color:#92400E;background:#FEF3C7;padding:4px 8px;border-radius:4px;margin-top:6px">' + sc.notes + '</div>' : '') +
@@ -2099,4 +2205,101 @@ prefetchData().then(function() {
 loadOrders();
 </script>
 </body>
-</html>
+</html>// ---- SPECIAL RUN ----
+var selectedSpecialType = '';
+var specialRunActive = false;
+
+function toggleSpecialRun() {
+  var form = document.getElementById('special-run-form');
+  var btn  = document.getElementById('special-toggle-btn');
+  if(!form) return;
+  var open = form.style.display === 'none';
+  form.style.display = open ? 'block' : 'none';
+  btn.textContent = open ? '− Close' : '+ Open';
+  if(open) {
+    var sc = document.getElementById('special-codrv');
+    if(sc) {
+      sc.innerHTML = '<option value="">None</option>' +
+        DRIVERS.filter(function(d) { return d !== curDriver; })
+          .map(function(d) { return '<option>' + d + '</option>'; }).join('');
+    }
+  }
+}
+
+function selectSpecialType(btn) {
+  selectedSpecialType = btn.dataset.type;
+  document.querySelectorAll('.special-type-btn').forEach(function(b) {
+    b.style.background = b === btn ? '#F59E0B' : '#fff';
+    b.style.color = b === btn ? '#fff' : '#374151';
+    b.style.borderColor = b === btn ? '#F59E0B' : '#D1D5DB';
+  });
+  var ci = document.getElementById('special-type-custom');
+  if(ci) ci.style.display = selectedSpecialType === '__other__' ? 'block' : 'none';
+}
+
+async function specialDepart() {
+  var vehicle = document.getElementById('special-vehicle').value;
+  var depKm   = document.getElementById('special-depkm').value;
+  var codrv   = document.getElementById('special-codrv') ? document.getElementById('special-codrv').value : '';
+  var notes   = document.getElementById('special-notes').value;
+  var customEl = document.getElementById('special-type-custom');
+  var runType = selectedSpecialType === '__other__'
+    ? (customEl ? customEl.value.trim() || 'Other' : 'Other')
+    : selectedSpecialType;
+  if(!curDriver)  { toast('drv-toast', 'Select your name first', false); return; }
+  if(!runType)    { toast('drv-toast', 'Select run type', false); return; }
+  if(!vehicle)    { toast('drv-toast', 'Select vehicle', false); return; }
+  if(!depKm)      { toast('drv-toast', 'Enter departure KM', false); return; }
+  var vSel  = document.getElementById('special-vehicle');
+  var plate = (vSel.options[vSel.selectedIndex] && vSel.options[vSel.selectedIndex].dataset.plate) || '';
+  var btn   = document.getElementById('special-depart-btn');
+  btn.textContent = 'Departing...'; btn.disabled = true;
+  try {
+    var r = await apiPost('submitDeparture', {
+      driver: curDriver, vehicle: vehicle, plate: plate,
+      destination: '🚨 ' + runType + (notes ? ' — ' + notes : ''),
+      depKm: parseFloat(depKm), coDriver: codrv, orderIds: []
+    });
+    btn.textContent = '🚨 Emergency Depart'; btn.disabled = false;
+    if(r && r.success) {
+      specialRunActive = true;
+      var infoEl = document.getElementById('special-run-info');
+      if(infoEl) infoEl.innerHTML = '🚨 <strong>' + runType + '</strong> | ' + vehicle + ' | Dep: <strong>' + depKm + ' km</strong>';
+      document.getElementById('special-run-form').style.display = 'none';
+      document.getElementById('special-active').style.display = 'block';
+      var toggleBtn = document.getElementById('special-toggle-btn');
+      if(toggleBtn) toggleBtn.style.display = 'none';
+    } else toast('drv-toast', 'Error departing', false);
+  } catch(e) { btn.textContent = '🚨 Emergency Depart'; btn.disabled = false; toast('drv-toast', 'Error: ' + e.message, false); }
+}
+
+async function specialArrive() {
+  var arrKm   = document.getElementById('special-arrkm').value;
+  var remarks = document.getElementById('special-remarks').value;
+  if(!arrKm) { toast('drv-toast', 'Enter arrival KM', false); return; }
+  var btn = document.querySelector('#special-active .btn-arrive');
+  btn.textContent = 'Saving...'; btn.disabled = true;
+  try {
+    var r = await apiPost('submitArrival', { driver: curDriver, arrKm: parseFloat(arrKm), remarks: remarks });
+    btn.textContent = 'Complete Special Run ✓'; btn.disabled = false;
+    if(r && r.success) {
+      toast('drv-toast', 'Special run completed! +' + r.distance + ' km', true);
+      specialRunActive = false;
+      setTimeout(function() {
+        document.getElementById('special-active').style.display = 'none';
+        document.getElementById('special-run-form').style.display = 'none';
+        var toggleBtn = document.getElementById('special-toggle-btn');
+        if(toggleBtn) { toggleBtn.style.display = 'block'; toggleBtn.textContent = '+ Open'; }
+        ['special-depkm','special-arrkm','special-remarks','special-notes'].forEach(function(id) {
+          var el = document.getElementById(id); if(el) el.value = '';
+        });
+        var ci = document.getElementById('special-type-custom');
+        if(ci) { ci.value = ''; ci.style.display = 'none'; }
+        selectedSpecialType = '';
+        document.querySelectorAll('.special-type-btn').forEach(function(b) {
+          b.style.background = '#fff'; b.style.color = '#374151'; b.style.borderColor = '#D1D5DB';
+        });
+      }, 2000);
+    } else toast('drv-toast', (r && r.message) || 'Error', false);
+  } catch(e) { btn.textContent = 'Complete Special Run ✓'; btn.disabled = false; toast('drv-toast', 'Error: ' + e.message, false); }
+}
