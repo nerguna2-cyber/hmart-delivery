@@ -1380,7 +1380,13 @@ async function loadLive() {
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;margin-bottom:8px">';
     var vehList = await apiGet('getVehicleStatus');
     (vehList || []).forEach(function(v) {
-      var activeRun = active.find(function(r) { return r.vehicle && r.vehicle.trim() === v.vehicle.trim(); });
+      var activeRun = active.find(function(r) {
+        var rv = (r.vehicle||'').trim().toLowerCase();
+        var rp = (r.plate||'').trim().toLowerCase();
+        var vv = (v.vehicle||'').trim().toLowerCase();
+        var vp = (v.plate||'').trim().toLowerCase();
+        return rv === vv || (vp && rp && rp === vp);
+      });
       var onRoad = !!activeRun;
       var statusColor = onRoad ? '#1D4ED8' : v.status === 'Active' ? '#059669' : '#DC2626';
       var statusText  = onRoad ? '🚚 On Road' : v.status === 'Active' ? '✓ Available' : '⚠ ' + v.status;
@@ -1767,26 +1773,55 @@ function saveDefaultSchedule() {
   loadAttendance();
 }
 
-function saveDriverOverride() {
-  var driver = document.getElementById('att-driver').value;
-  if(!driver) { toast('toast-att', 'Select a driver', false); return; }
-  var ov = {
-    breakStart: document.getElementById('att-break-start').value || defaultSchedule.breakStart,
-    breakEnd:   document.getElementById('att-break-end').value   || defaultSchedule.breakEnd,
-    clockout:   document.getElementById('att-clockout').value    || defaultSchedule.clockout,
-    notes:      document.getElementById('att-notes').value       || ''
-  };
-  driverOverrides[driver] = ov;
+function buildAttDriverTable() {
+  var el = document.getElementById('att-driver-table');
+  if(!el) return;
+  el.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+    '<thead><tr style="background:#F1F5F9">' +
+      '<th style="padding:7px 8px;text-align:left;border:1px solid #E2E8F0;font-weight:600">Driver</th>' +
+      '<th style="padding:7px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:600">Clock In</th>' +
+      '<th style="padding:7px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:600;background:#FEF3C7">Break Start</th>' +
+      '<th style="padding:7px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:600;background:#FEF3C7">Break End</th>' +
+      '<th style="padding:7px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:600">Clock Out</th>' +
+      '<th style="padding:7px 8px;text-align:left;border:1px solid #E2E8F0;font-weight:600">Notes</th>' +
+    '</tr></thead><tbody>' +
+    DRIVERS.map(function(d) {
+      var ov = driverOverrides[d] || {};
+      return '<tr>' +
+        '<td style="padding:6px 8px;border:1px solid #E2E8F0;font-weight:600;white-space:nowrap">' + d + '</td>' +
+        '<td style="padding:4px;border:1px solid #E2E8F0"><input type="time" id="ov-ci-' + d + '" value="' + (ov.clockin||defaultSchedule.clockin) + '" style="width:100%;border:none;font-size:12px;text-align:center;padding:4px"></td>' +
+        '<td style="padding:4px;border:1px solid #E2E8F0;background:#FFFBEB"><input type="time" id="ov-bs-' + d + '" value="' + (ov.breakStart||defaultSchedule.breakStart) + '" style="width:100%;border:none;font-size:12px;text-align:center;padding:4px;background:transparent"></td>' +
+        '<td style="padding:4px;border:1px solid #E2E8F0;background:#FFFBEB"><input type="time" id="ov-be-' + d + '" value="' + (ov.breakEnd||defaultSchedule.breakEnd) + '" style="width:100%;border:none;font-size:12px;text-align:center;padding:4px;background:transparent"></td>' +
+        '<td style="padding:4px;border:1px solid #E2E8F0"><input type="time" id="ov-co-' + d + '" value="' + (ov.clockout||defaultSchedule.clockout) + '" style="width:100%;border:none;font-size:12px;text-align:center;padding:4px"></td>' +
+        '<td style="padding:4px;border:1px solid #E2E8F0"><input type="text" id="ov-nt-' + d + '" value="' + (ov.notes||'') + '" placeholder="Notes..." style="width:100%;border:none;font-size:12px;padding:4px"></td>' +
+      '</tr>';
+    }).join('') +
+    '</tbody></table>';
+}
+
+function saveAllOverrides() {
+  DRIVERS.forEach(function(d) {
+    var ci = document.getElementById('ov-ci-' + d);
+    var bs = document.getElementById('ov-bs-' + d);
+    var be = document.getElementById('ov-be-' + d);
+    var co = document.getElementById('ov-co-' + d);
+    var nt = document.getElementById('ov-nt-' + d);
+    if(!ci) return;
+    driverOverrides[d] = {
+      clockin:    ci.value || defaultSchedule.clockin,
+      breakStart: bs.value || defaultSchedule.breakStart,
+      breakEnd:   be.value || defaultSchedule.breakEnd,
+      clockout:   co.value || defaultSchedule.clockout,
+      notes:      nt ? nt.value : ''
+    };
+  });
   try { localStorage.setItem('hmart_overrides', JSON.stringify(driverOverrides)); } catch(e) {}
-  toast('toast-att', driver + ' schedule saved!', true);
+  toast('toast-att', 'All schedules saved!', true);
   loadAttendance();
 }
 
 function loadAttDriverSelect() {
-  var sel = document.getElementById('att-driver');
-  if(!sel) return;
-  sel.innerHTML = '<option value="">-- Select --</option>' +
-    DRIVERS.map(function(d) { return '<option>' + d + '</option>'; }).join('');
+  buildAttDriverTable();
 }
 
 function calcHours(start, end) {
@@ -1799,6 +1834,7 @@ function calcHours(start, end) {
 }
 
 function loadAttendance() {
+  buildAttDriverTable();
   document.getElementById('att-list').innerHTML = '<div class="empty">Loading...</div>';
   var now = new Date();
   var nowMins = now.getHours()*60 + now.getMinutes();
