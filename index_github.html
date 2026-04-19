@@ -178,48 +178,82 @@ html{width:100%;overflow-x:hidden}
 
 <!-- API URL — change this to your deployed Apps Script URL -->
 <script>
-var API_URL = 'https://script.google.com/macros/s/AKfycbz-CXpGjxsoXOYehLUVB-BSPZvn2KVMu8qS7EWaYhpvDXSX7c9P2jeYFU-4UfnvND07Jw/exec';
+var API_URL = 'https://script.google.com/macros/s/AKfycbxbwh-6bNgRV9IN9oVwcYPqtrbLQkEcWPJk7ukVOvYe7J-qnOw2U_xDxsQyPG2_JPK8zg/exec';
 
-// API helpers with retry logic
-async function apiGet(action, params, retries) {
+// API helpers — JSONP for GET (CORS-free), fetch for POST
+var _jsonpCbs = {};
+var _jsonpId = 0;
+
+function apiGet(action, params, retries) {
   params = params || {}; retries = retries === undefined ? 3 : retries;
-  var url = API_URL + '?action=' + action;
-  Object.keys(params).forEach(function(k) { url += '&' + k + '=' + encodeURIComponent(params[k]); });
-  for(var attempt = 1; attempt <= retries; attempt++) {
-    try {
-      var controller = new AbortController();
-      var timeout = setTimeout(function() { controller.abort(); }, 10000);
-      var res = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeout);
-      return await res.json();
-    } catch(e) {
-      if(attempt === retries) throw e;
-      showNetworkStatus('Retrying... (' + attempt + '/' + retries + ')');
-      await new Promise(function(r) { setTimeout(r, 1500 * attempt); });
+  return new Promise(function(resolve, reject) {
+    var attempt = 0;
+    function tryOnce() {
+      attempt++;
+      var cbName = '_jsonp_' + (++_jsonpId);
+      var url = API_URL + '?action=' + action + '&callback=' + cbName;
+      Object.keys(params).forEach(function(k) { url += '&' + k + '=' + encodeURIComponent(params[k]); });
+      var done = false;
+      var timer = setTimeout(function() {
+        if(done) return; done = true;
+        delete window[cbName];
+        if(attempt < retries) { showNetworkStatus('Retrying... (' + attempt + '/' + retries + ')'); setTimeout(tryOnce, 1500 * attempt); }
+        else reject(new Error('Timeout'));
+      }, 10000);
+      window[cbName] = function(data) {
+        if(done) return; done = true;
+        clearTimeout(timer); delete window[cbName];
+        resolve(data);
+      };
+      var s = document.createElement('script');
+      s.src = url;
+      s.onerror = function() {
+        if(done) return; done = true;
+        clearTimeout(timer); delete window[cbName]; document.head.removeChild(s);
+        if(attempt < retries) { showNetworkStatus('Retrying... (' + attempt + '/' + retries + ')'); setTimeout(tryOnce, 1500 * attempt); }
+        else reject(new Error('Network error'));
+      };
+      document.head.appendChild(s);
     }
-  }
+    tryOnce();
+  });
 }
 
-async function apiPost(action, data, retries) {
+function apiPost(action, data, retries) {
   retries = retries === undefined ? 3 : retries;
-  for(var attempt = 1; attempt <= retries; attempt++) {
-    try {
-      var controller = new AbortController();
-      var timeout = setTimeout(function() { controller.abort(); }, 12000);
-      var res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action: action, data: data }),
-        signal: controller.signal
-      });
-      clearTimeout(timeout);
-      return await res.json();
-    } catch(e) {
-      if(attempt === retries) throw e;
-      showNetworkStatus('Retrying... (' + attempt + '/' + retries + ')');
-      await new Promise(function(r) { setTimeout(r, 1500 * attempt); });
+  // Use JSONP for POST too — encode data in URL param
+  return new Promise(function(resolve, reject) {
+    var attempt = 0;
+    function tryOnce() {
+      attempt++;
+      var cbName = '_jsonp_' + (++_jsonpId);
+      var encoded = encodeURIComponent(JSON.stringify(data));
+      var url = API_URL + '?action=' + action + '&callback=' + cbName + '&body=' + encoded;
+      var done = false;
+      var timer = setTimeout(function() {
+        if(done) return; done = true;
+        delete window[cbName];
+        if(attempt < retries) { showNetworkStatus('Retrying... (' + attempt + '/' + retries + ')'); setTimeout(tryOnce, 1500 * attempt); }
+        else reject(new Error('Timeout'));
+      }, 12000);
+      window[cbName] = function(result) {
+        if(done) return; done = true;
+        clearTimeout(timer); delete window[cbName];
+        resolve(result);
+      };
+      var s = document.createElement('script');
+      s.src = url;
+      s.onerror = function() {
+        if(done) return; done = true;
+        clearTimeout(timer); delete window[cbName];
+        if(s.parentNode) s.parentNode.removeChild(s);
+        if(attempt < retries) { showNetworkStatus('Retrying... (' + attempt + '/' + retries + ')'); setTimeout(tryOnce, 1500 * attempt); }
+        else reject(new Error('Network error'));
+      };
+      document.head.appendChild(s);
     }
-  }
+    tryOnce();
+  });
 }
 
 function showNetworkStatus(msg) {
