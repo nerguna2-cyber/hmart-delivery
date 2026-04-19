@@ -984,11 +984,6 @@ async function loadDriverList() {
     DRIVERS.map(function(d) { return '<option>' + d + '</option>'; }).join('') +
     '<option value="other">Other (type)...</option>';
 
-  // Show special run notice if off-hours
-  if(!isOfficeHours()) {
-    var notice = document.getElementById('off-hours-notice');
-    if(notice) notice.style.display = 'block';
-  }
 }
 
 function loadDriverSelectsOffice() {
@@ -2254,9 +2249,6 @@ setInterval(function(){
 },30000);
 
 addFastRow();
-prefetchData().then(function() {
-  renderOrders();
-});
 loadOrders();
 </script>
 </body>
