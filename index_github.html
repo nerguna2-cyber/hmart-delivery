@@ -1744,8 +1744,8 @@ function buildChecklist() {
     checkState[k] = 'OK';
     el.innerHTML += '<div class="check-row"><span style="font-size:13px;color:#374151">' + k + '</span>' +
       '<div style="display:flex;gap:8px">' +
-        '<div class="check-opt ok" id="ck-'+k+'-ok" onclick="setCheck(\''+k+'\',\'OK\')">OK</div>' +
-        '<div class="check-opt" id="ck-'+k+'-ng" onclick="setCheck(\''+k+'\',\'NG\')">NG</div>' +
+        '<div class="check-opt ok" id="ck-'+k+'-ok" onclick="setCheck(&quot;'+k+'&quot;,&quot;OK&quot;)">OK</div>' +
+        '<div class="check-opt" id="ck-'+k+'-ng" onclick="setCheck(&quot;'+k+'&quot;,&quot;NG&quot;)">NG</div>' +
       '</div></div>';
   });
 }
