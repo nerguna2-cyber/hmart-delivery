@@ -2123,6 +2123,7 @@ function renderOvertimeList() {
   var el = document.getElementById('overtime-list');
   if(!el) return;
   var hasData = false;
+  var C_GREEN = '#059669';
   var html = DRIVERS.map(function(d) {
     var bal = overtimeBalance[d] || 0;
     if(bal === 0) return '';
@@ -2143,6 +2144,7 @@ function renderOvertimeList() {
     '</div>';
   }).join('');
   var C_GREEN = '#059669';
+  el.innerHTML = '';
   if(!hasData) el.innerHTML = '<div class="empty" style="font-size:12px">No overtime/undertime recorded</div>';
   else el.innerHTML = html;
 }
@@ -2150,7 +2152,7 @@ function renderOvertimeList() {
 function useOTCredit(driver, apply) {
   // apply=true: driver uses their credit (reduce balance)
   // apply=false: clear balance
-  if(!confirm(apply ? driver + ': Apply overtime credit as undertime today?' : 'Clear ' + driver + ''s balance?')) return;
+  if(!confirm('Update ' + driver + ' balance?')) return;
   if(!apply) {
     overtimeBalance[driver] = 0;
   }
