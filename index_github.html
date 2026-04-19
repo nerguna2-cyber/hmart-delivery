@@ -40,6 +40,8 @@ html{width:100%;overflow-x:hidden}
 .status-pending{display:inline-block;background:#FEF3C7;color:#92400E;border:2px solid #F59E0B;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:700;letter-spacing:0.05em}
 .status-progress{display:inline-block;background:#1D4ED8;color:#fff;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:700;letter-spacing:0.05em}
 .status-done{display:inline-block;background:#059669;color:#fff;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:700;letter-spacing:0.05em}
+.status-ontheway{display:inline-block;background:#7C3AED;color:#fff;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:700;letter-spacing:0.05em;animation:otw-pulse 2s infinite}
+@keyframes otw-pulse{0%,100%{opacity:1}50%{opacity:0.75}}
 .biz-tag{background:#D1FAE5;color:#065F46;font-size:11px;font-weight:600;padding:1px 7px;border-radius:10px}
 .personal-tag{background:#FEF3C7;color:#92400E;font-size:11px;font-weight:600;padding:1px 7px;border-radius:10px}
 .empty{text-align:center;padding:24px;color:#94A3B8;font-size:14px}
@@ -50,6 +52,14 @@ html{width:100%;overflow-x:hidden}
 @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 .back-btn{background:rgba(255,255,255,0.2);border:none;color:#fff;padding:8px 14px;border-radius:6px;font-size:13px;cursor:pointer}
 .btn-sm{padding:7px 13px;font-size:12px;background:transparent;border:1px solid #D1D5DB;border-radius:6px;color:#374151;cursor:pointer}
+
+/* ON THE WAY card style */
+.order-item-ontheway{
+  border-left:4px solid #7C3AED;
+  background:linear-gradient(135deg,#F5F3FF 0%,#EDE9FE 100%);
+  border:1px solid #C4B5FD;
+  border-left:4px solid #7C3AED;
+}
 
 /* DRIVER */
 .drv-wrap{max-width:100%;margin:0 auto;padding-bottom:60px}
@@ -115,6 +125,7 @@ html{width:100%;overflow-x:hidden}
 .order-item-personal{border-left:4px solid #D97706;background:#FFFBEB}
 .order-item-progress{border-left:4px solid #93C5FD;background:#EFF6FF}
 .order-item-done{border-left:4px solid #6EE7B7;background:#F0FDF4;opacity:0.8}
+.order-item-ontheway{border-left:4px solid #7C3AED;background:linear-gradient(135deg,#F5F3FF,#EDE9FE);border:1px solid #C4B5FD;border-left:4px solid #7C3AED}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
 .fast-row{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:12px;margin-bottom:10px}
@@ -175,21 +186,9 @@ html{width:100%;overflow-x:hidden}
 @media print{
   body *{visibility:hidden}
   #print-area,#print-area *,#att-print-area,#att-print-area *{visibility:visible}
-  #print-area{
-    position:absolute;top:0;left:0;width:100%;
-    padding:16px;box-sizing:border-box
-  }
-  #att-print-area{
-    position:absolute;top:0;left:0;width:100%;
-    padding:16px;box-sizing:border-box
-  }
-  .report-section{
-    box-shadow:none;
-    border:1px solid #E2E8F0;
-    break-inside:avoid;
-    page-break-inside:avoid;
-    margin-bottom:12px
-  }
+  #print-area{position:absolute;top:0;left:0;width:100%;padding:16px;box-sizing:border-box}
+  #att-print-area{position:absolute;top:0;left:0;width:100%;padding:16px;box-sizing:border-box}
+  .report-section{box-shadow:none;border:1px solid #E2E8F0;break-inside:avoid;page-break-inside:avoid;margin-bottom:12px}
   .report-table{width:100%;font-size:11px}
   .report-table th,.report-table td{padding:5px 7px}
   button{display:none!important}
@@ -199,7 +198,7 @@ html{width:100%;overflow-x:hidden}
 </head>
 <body>
 
-<!-- API URL — change this to your deployed Apps Script URL -->
+<!-- API URL -->
 <script>
 var API_URL = 'https://script.google.com/macros/s/AKfycbxiuxPf6fuLuRiu3C-heEjhjzfaEkBW49MiQWm3omsUDT0hFEgAIpYOnYxdtIr0lTbCHg/exec';
 
@@ -207,12 +206,11 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbxiuxPf6fuLuRiu3C-heEjhjz
 // OFFLINE QUEUE + CACHE SYSTEM
 // ============================================================
 var _jsonpId = 0;
-var _cache = {};           // in-memory cache for GET requests
-var _offlineQueue = [];    // pending POST actions when offline
+var _cache = {};
+var _offlineQueue = [];
 var _isOnline = navigator.onLine;
 var _syncing = false;
 
-// Monitor online/offline status
 window.addEventListener('online', function() {
   _isOnline = true;
   showNetworkStatus('Back online! Syncing...', 'green');
@@ -223,7 +221,6 @@ window.addEventListener('offline', function() {
   showNetworkStatus('No signal — saving locally', 'red');
 });
 
-// Load offline queue from localStorage on startup
 (function() {
   try {
     var q = localStorage.getItem('hmart_queue');
@@ -249,14 +246,11 @@ async function syncOfflineQueue() {
       _offlineQueue.shift();
       saveQueue();
       synced++;
-    } catch(e) {
-      break; // still offline, stop trying
-    }
+    } catch(e) { break; }
   }
   _syncing = false;
   if(synced > 0) {
     showNetworkStatus(synced + ' action(s) synced!', 'green');
-    // Reload data after sync
     if(curDriver) drvLoadData();
   }
   if(_offlineQueue.length === 0) {
@@ -264,11 +258,9 @@ async function syncOfflineQueue() {
   }
 }
 
-// JSONP GET with cache
 function apiGet(action, params, retries) {
   params = params || {}; retries = retries === undefined ? 2 : retries;
   var cacheKey = action + JSON.stringify(params);
-
   return new Promise(function(resolve, reject) {
     var attempt = 0;
     function tryOnce() {
@@ -280,21 +272,16 @@ function apiGet(action, params, retries) {
       var timer = setTimeout(function() {
         if(done) return; done = true;
         delete window[cbName];
-        if(attempt < retries) {
-          setTimeout(tryOnce, 800);
-        } else {
-          if(_cache[cacheKey]) {
-            showNetworkStatus('No signal — showing cached data', 'orange');
-            resolve(_cache[cacheKey]);
-          } else {
-            reject(new Error('No signal'));
-          }
+        if(attempt < retries) { setTimeout(tryOnce, 800); }
+        else {
+          if(_cache[cacheKey]) { showNetworkStatus('No signal — showing cached data', 'orange'); resolve(_cache[cacheKey]); }
+          else { reject(new Error('No signal')); }
         }
       }, 7000);
       window[cbName] = function(data) {
         if(done) return; done = true;
         clearTimeout(timer); delete window[cbName];
-        _cache[cacheKey] = data; // cache the result
+        _cache[cacheKey] = data;
         resolve(data);
       };
       var s = document.createElement('script');
@@ -303,15 +290,10 @@ function apiGet(action, params, retries) {
         if(done) return; done = true;
         clearTimeout(timer); delete window[cbName];
         if(s.parentNode) s.parentNode.removeChild(s);
-        if(attempt < retries) {
-          setTimeout(tryOnce, 1000);
-        } else {
-          if(_cache[cacheKey]) {
-            showNetworkStatus('No signal — showing cached data', 'orange');
-            resolve(_cache[cacheKey]);
-          } else {
-            reject(new Error('No signal'));
-          }
+        if(attempt < retries) { setTimeout(tryOnce, 1000); }
+        else {
+          if(_cache[cacheKey]) { showNetworkStatus('No signal — showing cached data', 'orange'); resolve(_cache[cacheKey]); }
+          else { reject(new Error('No signal')); }
         }
       };
       document.head.appendChild(s);
@@ -320,7 +302,6 @@ function apiGet(action, params, retries) {
   });
 }
 
-// Direct JSONP POST (used for sync)
 function apiPostDirect(action, data) {
   return new Promise(function(resolve, reject) {
     var cbName = '_cb_' + (++_jsonpId);
@@ -349,10 +330,8 @@ function apiPostDirect(action, data) {
   });
 }
 
-// POST with offline queue fallback
 async function apiPost(action, data) {
   if(!_isOnline) {
-    // Save to offline queue
     _offlineQueue.push({ action: action, data: data, ts: Date.now() });
     saveQueue();
     showNetworkStatus('Saved locally — will sync when online', 'orange');
@@ -360,11 +339,9 @@ async function apiPost(action, data) {
   }
   try {
     var result = await apiPostDirect(action, data);
-    // Sync any queued items
     if(_offlineQueue.length > 0) syncOfflineQueue();
     return result;
   } catch(e) {
-    // Connection failed — add to queue
     _offlineQueue.push({ action: action, data: data, ts: Date.now() });
     saveQueue();
     showNetworkStatus('Saved locally — will sync when online', 'orange');
@@ -375,15 +352,11 @@ async function apiPost(action, data) {
 function fmtTime(val) {
   if(!val) return '-';
   var s = String(val);
-  // If it's already HH:mm format, return as is
   if(/^\d{2}:\d{2}$/.test(s)) return s;
-  // If it's a Date object string, parse and format
   try {
     var d = new Date(s);
     if(!isNaN(d.getTime())) {
-      var h = d.getHours().toString().padStart(2,'0');
-      var m = d.getMinutes().toString().padStart(2,'0');
-      return h + ':' + m;
+      return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
     }
   } catch(e) {}
   return s;
@@ -396,10 +369,7 @@ function showNetworkStatus(msg, color) {
   el.style.background = color === 'green' ? '#059669' : color === 'red' ? '#DC2626' : '#F59E0B';
   el.style.display = 'block';
   clearTimeout(el._timer);
-  if(color === 'green') {
-    el._timer = setTimeout(function() { el.style.display = 'none'; }, 3000);
-  }
-  // Add tap to sync if orange
+  if(color === 'green') { el._timer = setTimeout(function() { el.style.display = 'none'; }, 3000); }
   el.onclick = color === 'orange' ? function() { syncOfflineQueue(); } : null;
 }
 </script>
@@ -431,7 +401,6 @@ function showNetworkStatus(msg, color) {
       <div id="drv-toast" class="toast"></div>
 
       <div id="drv-s1">
-
         <div class="card">
           <div class="card-title">Who are you?</div>
           <div class="field">
@@ -516,84 +485,84 @@ function showNetworkStatus(msg, color) {
       </div>
     </div>
 
-      <!-- SPECIAL / EMERGENCY RUN — always visible -->
-      <div id="drv-special-section" style="display:none">
-        <div style="border-top:2px dashed #F59E0B;margin:16px 0 12px;padding-top:12px">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-            <span style="font-size:18px">🚨</span>
-            <div>
-              <div style="font-size:14px;font-weight:700;color:#92400E">Emergency / Special Run</div>
-              <div style="font-size:11px;color:#B45309">No office order — driver-initiated run</div>
-            </div>
-            <button onclick="toggleSpecialRun()" id="special-toggle-btn" style="margin-left:auto;padding:6px 12px;font-size:12px;font-weight:600;background:#F59E0B;color:#fff;border:none;border-radius:6px;cursor:pointer">+ Open</button>
+    <!-- SPECIAL / EMERGENCY RUN -->
+    <div id="drv-special-section" style="display:none">
+      <div style="border-top:2px dashed #F59E0B;margin:16px 0 12px;padding-top:12px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          <span style="font-size:18px">🚨</span>
+          <div>
+            <div style="font-size:14px;font-weight:700;color:#92400E">Emergency / Special Run</div>
+            <div style="font-size:11px;color:#B45309">No office order — driver-initiated run</div>
           </div>
-        </div>
-        <div id="special-run-form" style="display:none">
-          <div class="card" style="border:2px solid #F59E0B;background:#FFFBEB;margin-top:0">
-            <div class="field">
-              <label>Run Type</label>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px" id="special-type-btns">
-                <button class="special-type-btn" data-type="Airport Pickup" onclick="selectSpecialType(this)" style="padding:12px 6px;font-size:12px;font-weight:600;border:2px solid #D1D5DB;border-radius:8px;background:#fff;cursor:pointer">✈️ Airport Pickup</button>
-                <button class="special-type-btn" data-type="Moalboal Delivery" onclick="selectSpecialType(this)" style="padding:12px 6px;font-size:12px;font-weight:600;border:2px solid #D1D5DB;border-radius:8px;background:#fff;cursor:pointer">🚐 Moalboal</button>
-                <button class="special-type-btn" data-type="Bohol Delivery" onclick="selectSpecialType(this)" style="padding:12px 6px;font-size:12px;font-weight:600;border:2px solid #D1D5DB;border-radius:8px;background:#fff;cursor:pointer">🚢 Bohol Delivery</button>
-                <button class="special-type-btn" data-type="Vegetable Pickup" onclick="selectSpecialType(this)" style="padding:12px 6px;font-size:12px;font-weight:600;border:2px solid #D1D5DB;border-radius:8px;background:#fff;cursor:pointer">🥬 Veg Pickup</button>
-                <button class="special-type-btn" data-type="__other__" onclick="selectSpecialType(this)" style="padding:12px 6px;font-size:12px;font-weight:600;border:2px solid #D1D5DB;border-radius:8px;background:#fff;cursor:pointer;grid-column:span 2">✏️ Other (type below)</button>
-              </div>
-              <input type="text" id="special-type-custom" placeholder="Enter run type..." style="display:none;margin-top:8px;width:100%;padding:12px;border:1px solid #D1D5DB;border-radius:8px;font-size:14px">
-            </div>
-            <div class="field">
-              <label>Vehicle</label>
-              <select id="special-vehicle">
-                <option value="">-- Select Vehicle --</option>
-                <optgroup label="Vehicles">
-                  <option data-plate="GAD 3842">BIG PLUS (GAD 3842)</option>
-                  <option data-plate="Z295">LITE ACE (Z295)</option>
-                  <option data-plate="CAK 3176">G-LINK (CAK 3176)</option>
-                  <option data-plate="GBE 4005">TRAVIZ MOALBOAL (GBE 4005)</option>
-                  <option data-plate="GBK 7550">LITE ACE (GBK 7550)</option>
-                  <option data-plate="R475">LITE ACE (Z5 R475)</option>
-                  <option data-plate="NAM 7510">10 WHEELS (NAM 7510)</option>
-                  <option data-plate="GBE 5818">FROZEN (GBE 5818)</option>
-                </optgroup>
-                <optgroup label="Motors">
-                  <option data-plate="301 GAG">HONDA BEAT (301 GAG)</option>
-                  <option data-plate="G756 SM">MIO MOTOR (G756 SM)</option>
-                </optgroup>
-              </select>
-            </div>
-            <div class="field">
-              <label>Co-Driver (optional)</label>
-              <select id="special-codrv"><option value="">None</option></select>
-            </div>
-            <div class="field">
-              <label>Odometer at Departure (km)</label>
-              <input type="number" id="special-depkm" placeholder="e.g. 91120" inputmode="numeric">
-            </div>
-            <div class="field">
-              <label>Notes (optional)</label>
-              <input type="text" id="special-notes" placeholder="e.g. 3 boxes, Gate 3, overnight...">
-            </div>
-            <button class="btn-depart" onclick="specialDepart()" id="special-depart-btn" style="background:#F59E0B">🚨 Special / Emergency Depart</button>
-          </div>
-        </div>
-        <!-- Active special run -->
-        <div id="special-active" style="display:none">
-          <div class="card" style="border:2px solid #F59E0B">
-            <div style="background:#F59E0B;color:#fff;border-radius:8px;padding:10px 12px;font-size:13px;font-weight:700;margin-bottom:12px">🚨 SPECIAL RUN IN PROGRESS</div>
-            <div class="info-box" id="special-run-info"></div>
-            <div class="divider"></div>
-            <div class="field">
-              <label>Odometer at Arrival (km)</label>
-              <input type="number" id="special-arrkm" placeholder="e.g. 91390" inputmode="numeric">
-            </div>
-            <div class="field">
-              <label>Remarks</label>
-              <textarea id="special-remarks" placeholder="Delivery details, issues..."></textarea>
-            </div>
-            <button class="btn-arrive" onclick="specialArrive()">Complete Special Run ✓</button>
-          </div>
+          <button onclick="toggleSpecialRun()" id="special-toggle-btn" style="margin-left:auto;padding:6px 12px;font-size:12px;font-weight:600;background:#F59E0B;color:#fff;border:none;border-radius:6px;cursor:pointer">+ Open</button>
         </div>
       </div>
+      <div id="special-run-form" style="display:none">
+        <div class="card" style="border:2px solid #F59E0B;background:#FFFBEB;margin-top:0">
+          <div class="field">
+            <label>Run Type</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px" id="special-type-btns">
+              <button class="special-type-btn" data-type="Airport Pickup" onclick="selectSpecialType(this)" style="padding:12px 6px;font-size:12px;font-weight:600;border:2px solid #D1D5DB;border-radius:8px;background:#fff;cursor:pointer">✈️ Airport Pickup</button>
+              <button class="special-type-btn" data-type="Moalboal Delivery" onclick="selectSpecialType(this)" style="padding:12px 6px;font-size:12px;font-weight:600;border:2px solid #D1D5DB;border-radius:8px;background:#fff;cursor:pointer">🚐 Moalboal</button>
+              <button class="special-type-btn" data-type="Bohol Delivery" onclick="selectSpecialType(this)" style="padding:12px 6px;font-size:12px;font-weight:600;border:2px solid #D1D5DB;border-radius:8px;background:#fff;cursor:pointer">🚢 Bohol Delivery</button>
+              <button class="special-type-btn" data-type="Vegetable Pickup" onclick="selectSpecialType(this)" style="padding:12px 6px;font-size:12px;font-weight:600;border:2px solid #D1D5DB;border-radius:8px;background:#fff;cursor:pointer">🥬 Veg Pickup</button>
+              <button class="special-type-btn" data-type="__other__" onclick="selectSpecialType(this)" style="padding:12px 6px;font-size:12px;font-weight:600;border:2px solid #D1D5DB;border-radius:8px;background:#fff;cursor:pointer;grid-column:span 2">✏️ Other (type below)</button>
+            </div>
+            <input type="text" id="special-type-custom" placeholder="Enter run type..." style="display:none;margin-top:8px;width:100%;padding:12px;border:1px solid #D1D5DB;border-radius:8px;font-size:14px">
+          </div>
+          <div class="field">
+            <label>Vehicle</label>
+            <select id="special-vehicle">
+              <option value="">-- Select Vehicle --</option>
+              <optgroup label="Vehicles">
+                <option data-plate="GAD 3842">BIG PLUS (GAD 3842)</option>
+                <option data-plate="Z295">LITE ACE (Z295)</option>
+                <option data-plate="CAK 3176">G-LINK (CAK 3176)</option>
+                <option data-plate="GBE 4005">TRAVIZ MOALBOAL (GBE 4005)</option>
+                <option data-plate="GBK 7550">LITE ACE (GBK 7550)</option>
+                <option data-plate="R475">LITE ACE (Z5 R475)</option>
+                <option data-plate="NAM 7510">10 WHEELS (NAM 7510)</option>
+                <option data-plate="GBE 5818">FROZEN (GBE 5818)</option>
+              </optgroup>
+              <optgroup label="Motors">
+                <option data-plate="301 GAG">HONDA BEAT (301 GAG)</option>
+                <option data-plate="G756 SM">MIO MOTOR (G756 SM)</option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="field">
+            <label>Co-Driver (optional)</label>
+            <select id="special-codrv"><option value="">None</option></select>
+          </div>
+          <div class="field">
+            <label>Odometer at Departure (km)</label>
+            <input type="number" id="special-depkm" placeholder="e.g. 91120" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label>Notes (optional)</label>
+            <input type="text" id="special-notes" placeholder="e.g. 3 boxes, Gate 3, overnight...">
+          </div>
+          <button class="btn-depart" onclick="specialDepart()" id="special-depart-btn" style="background:#F59E0B">🚨 Special / Emergency Depart</button>
+        </div>
+      </div>
+      <!-- Active special run -->
+      <div id="special-active" style="display:none">
+        <div class="card" style="border:2px solid #F59E0B">
+          <div style="background:#F59E0B;color:#fff;border-radius:8px;padding:10px 12px;font-size:13px;font-weight:700;margin-bottom:12px">🚨 SPECIAL RUN IN PROGRESS</div>
+          <div class="info-box" id="special-run-info"></div>
+          <div class="divider"></div>
+          <div class="field">
+            <label>Odometer at Arrival (km)</label>
+            <input type="number" id="special-arrkm" placeholder="e.g. 91390" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label>Remarks</label>
+            <textarea id="special-remarks" placeholder="Delivery details, issues..."></textarea>
+          </div>
+          <button class="btn-arrive" onclick="specialArrive()">Complete Special Run ✓</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -683,12 +652,10 @@ function showNetworkStatus(msg, color) {
     <div id="tab-attendance" class="off-screen">
       <div id="toast-att" class="toast"></div>
       <div style="display:grid;grid-template-columns:400px 1fr;gap:20px">
-
-        <!-- LEFT: schedule editor -->
         <div>
           <div class="off-card">
             <div class="card-title">Driver Schedules</div>
-            <div style="font-size:12px;color:#64748B;margin-bottom:10px">Set each driver's Clock In and Break Start. Times are saved per driver.</div>
+            <div style="font-size:12px;color:#64748B;margin-bottom:10px">Set each driver's Clock In and Break Start.</div>
             <div id="att-driver-table"><div class="empty">Loading...</div></div>
             <div style="display:flex;gap:8px;margin-top:10px">
               <button class="btn-primary-off" style="flex:1" onclick="saveAllOverrides()">Save All Schedules</button>
@@ -703,12 +670,8 @@ function showNetworkStatus(msg, color) {
               <select id="att-break-driver"><option value="">-- Select --</option></select>
             </div>
             <div class="row2">
-              <div class="off-field"><label>Actual Break Start</label>
-                <input type="time" id="att-actual-break" placeholder="e.g. 13:00">
-              </div>
-              <div class="off-field"><label>Actual Clock Out</label>
-                <input type="time" id="att-actual-clockout" placeholder="e.g. 18:20">
-              </div>
+              <div class="off-field"><label>Actual Break Start</label><input type="time" id="att-actual-break"></div>
+              <div class="off-field"><label>Actual Clock Out</label><input type="time" id="att-actual-clockout"></div>
             </div>
             <button class="btn-primary-off" onclick="saveActualTimes()">Save Actual Times</button>
           </div>
@@ -718,8 +681,6 @@ function showNetworkStatus(msg, color) {
             <div id="overtime-list"><div class="empty" style="font-size:12px">Select a date to view</div></div>
           </div>
         </div>
-
-        <!-- RIGHT: today's status -->
         <div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
             <div class="section-label" style="margin:0">Driver Status</div>
@@ -731,8 +692,6 @@ function showNetworkStatus(msg, color) {
           <div id="att-list"><div class="empty">Loading...</div></div>
         </div>
       </div>
-
-      <!-- PRINT AREA -->
       <div id="att-print-area" style="display:none">
         <div style="text-align:center;margin-bottom:16px">
           <div style="font-size:20px;font-weight:700">H mart</div>
@@ -753,7 +712,8 @@ function showNetworkStatus(msg, color) {
           <tbody id="att-print-body"></tbody>
         </table>
         <div style="margin-top:20px;font-size:11px;color:#94A3B8;text-align:center">Generated: <span id="att-print-gen"></span></div>
-      </div></div>
+      </div>
+    </div>
 
     <div id="tab-checklist" class="off-screen">
       <div id="toast-chk" class="toast"></div>
@@ -904,8 +864,8 @@ var activeDelId = null;
 var drvCurrentRunIds = [];
 var adminDrivers = [];
 var adminVehicles = [];
+var _onTheWayIds = {};
 
-// Init
 document.getElementById('ms-date').textContent = new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
 
 (function(){
@@ -956,22 +916,6 @@ function payBadge(p) {
   return '<span class="badge ' + (map[p] || 'badge-cash') + '">' + p + '</span>';
 }
 
-// Prefetch common data on page load
-var _prefetchDone = false;
-async function prefetchData() {
-  if(_prefetchDone) return;
-  _prefetchDone = true;
-  try {
-    // Fire both requests simultaneously
-    var p1 = apiGet('getTodayOrders');
-    var p2 = apiGet('getAdminSettings');
-    var results = await Promise.all([p1, p2]);
-    if(results[0]) allOrders = results[0];
-    if(results[1] && results[1].drivers) DRIVERS = results[1].drivers;
-  } catch(e) {}
-}
-
-// ---- LOAD DRIVER LIST ----
 async function loadDriverList() {
   try {
     var data = _cache['getAdminSettings{}'] || await apiGet('getAdminSettings');
@@ -984,7 +928,6 @@ async function loadDriverList() {
   cSel.innerHTML = '<option value="">None</option>' +
     DRIVERS.map(function(d) { return '<option>' + d + '</option>'; }).join('') +
     '<option value="other">Other (type)...</option>';
-
 }
 
 function loadDriverSelectsOffice() {
@@ -1001,12 +944,12 @@ function loadDriverSelectsOffice() {
   });
 }
 
-// ---- CHANGE CALC ----
 function roundUpK(n) {
   if(n <= 0) return 0;
   if(n <= 10000) return Math.ceil(n/1000)*1000;
   return Math.ceil(n/5000)*5000;
 }
+
 function calcChange() {
   var bill = parseFloat(document.getElementById('calc-bill').value) || 0;
   var given = parseFloat(document.getElementById('calc-given').value) || 0;
@@ -1018,7 +961,6 @@ function calcChange() {
   box.style.display = 'block';
 }
 
-// ---- FAST ORDER ENTRY ----
 function addFastRow() {
   var id = ++fastRowCount;
   rowPayment[id] = 'Cash';
@@ -1056,36 +998,6 @@ function addFastRow() {
 }
 
 function removeFR(id) { var el = document.getElementById('fr-' + id); if(el) el.remove(); delete rowPayment[id]; }
-
-function showDrvSched(id) {
-  var sel   = document.getElementById('fr-d-' + id);
-  var box   = document.getElementById('fr-sched-' + id);
-  if(!sel || !box) return;
-  var d = sel.value;
-  if(!d) { box.style.display = 'none'; return; }
-  var sc = (typeof getDriverSched === 'function') ? getDriverSched(d) : null;
-  if(!sc || (!sc.clockin && !sc.breakStart)) { box.style.display = 'none'; return; }
-  var nowMins = new Date().getHours()*60 + new Date().getMinutes();
-  var bStart = (actualBreaks && actualBreaks[d]) || sc.breakStart;
-  var bMins  = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
-  var onBreak = bMins > -1 && nowMins >= bMins && nowMins < bMins+60;
-  var onRoad  = false;
-  // Check if driver is on road from cached data
-  if(typeof allOrders !== 'undefined') {
-    // use cached run data if available
-  }
-  var statusIcon = onBreak ? '☕ On Break' : '✓ Available';
-  var statusColor = onBreak ? '#92400E' : '#065F46';
-  var statusBg    = onBreak ? '#FEF3C7' : '#F0FDF4';
-  box.style.display = 'block';
-  box.style.background = statusBg;
-  box.style.borderColor = onBreak ? '#FDE68A' : '#86EFAC';
-  box.innerHTML =
-    '<div style="font-weight:700;color:' + statusColor + '">' + d + ' — ' + statusIcon + '</div>' +
-    (sc.clockin    ? '<div>🟢 ' + sc.clockin + '</div>' : '') +
-    (bStart        ? '<div>☕ Break: ' + bStart + '</div>' : '') +
-    (sc.clockout   ? '<div>🔴 ' + sc.clockout + '</div>' : '');
-}
 
 function frCalc(id) {
   var bill = parseFloat(document.getElementById('fr-b-' + id).value) || 0;
@@ -1148,7 +1060,6 @@ async function loadOrders() {
     var officeData = await apiGet('getOfficeData');
     allOrders = (officeData && officeData.orders) || [];
     var runs = (officeData && officeData.runs) || [];
-    // Update on-the-way tracker
     _onTheWayIds = {};
     runs.filter(function(r) { return r.status === 'IN PROGRESS'; }).forEach(function(r) {
       if(r.orderIds) r.orderIds.forEach(function(id) { _onTheWayIds[id] = r.driver; });
@@ -1163,48 +1074,106 @@ function renderOrders() {
   document.getElementById('notif-area').style.display = pending.length ? 'flex' : 'none';
   if(!orders.length) { document.getElementById('orders-list').innerHTML = '<div class="empty">No orders yet today</div>'; return; }
   var html = '';
-  ['PENDING','IN PROGRESS','COMPLETED'].forEach(function(status) {
-    var grp = orders.filter(function(o) { return o.status === status; });
-    if(!grp.length) return;
-    html += '<div class="section-label">' + status + ' (' + grp.length + ')</div>';
-    grp.forEach(function(o) {
-      var isBiz = !!o.invoiceNum;
-      var cls = status === 'IN PROGRESS' ? 'order-item-progress' : status === 'COMPLETED' ? 'order-item-done' : (isBiz ? 'order-item-biz' : 'order-item-personal');
-      html += '<div class="order-item ' + cls + '">' +
-        '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">' +
-          '<span style="font-size:14px;font-weight:600">' + o.businessName + '</span>' +
-          (o.invoiceNum ? '<span style="font-size:12px;font-weight:600;color:#059669;background:#D1FAE5;padding:1px 7px;border-radius:4px">' + o.invoiceNum + '</span>' : '') +
-          (status === 'PENDING' && _onTheWayIds[o.orderId] ? '<span class="status-progress" style="background:#7C3AED">▶ ON THE WAY</span>' : '') +
-          (status === 'PENDING' && !_onTheWayIds[o.orderId] ? '<span class="status-pending">PENDING</span>' : '') +
-          (status === 'IN PROGRESS' ? '<span class="status-progress">▶ IN PROGRESS</span>' : '') +
-          (status === 'COMPLETED' ? '<span class="status-done">✓ DONE</span>' : '') +
-          (isBiz ? '<span class="biz-tag">Business</span>' : '<span class="personal-tag">Personal</span>') +
-          payBadge(o.payment || 'Cash') +
-          (o.driver ? '<span style="background:#EFF6FF;color:#1F4E79;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;border:1px solid #BFDBFE">' + o.driver + '</span>' : '<span style="font-size:11px;color:#EF4444;font-weight:600">Unassigned</span>') +
-        '</div>' +
-        '<div style="display:flex;gap:10px;font-size:12px;color:#64748B;flex-wrap:wrap">' +
-          (o.billAmount ? '<span>Bill: P' + o.billAmount + '</span>' : '') +
-          (o.change && o.payment === 'Cash' ? '<span style="color:#059669;font-weight:600">Change: P' + o.change + '</span>' : '') +
-          (o.completeTime ? '<span>Done: ' + o.completeTime + '</span>' : '') +
-        '</div>' +
-        (o.notes ? '<div style="background:#FEF3C7;border-radius:5px;padding:5px 8px;font-size:12px;color:#92400E;margin-top:6px;font-weight:500">' + o.notes + '</div>' : '') +
-        (status !== 'COMPLETED' ?
-          '<div style="display:flex;gap:6px;margin-top:8px;align-items:center">' +
-            '<select id="ra-' + o.rowNum + '" style="flex:1;padding:6px 8px;font-size:12px;border:1px solid #D1D5DB;border-radius:5px">' +
-              '<option value="">Reassign...</option>' +
-              DRIVERS.map(function(d) { return '<option' + (o.driver === d ? ' selected' : '') + '>' + d + '</option>'; }).join('') +
-            '</select>' +
-            '<button class="btn-blue-off" onclick="reassign(\'' + o.orderId + '\',' + o.rowNum + ')">Save</button>' +
-            '<button class="btn-danger-off" onclick="delOrder(\'' + o.orderId + '\')">Del</button>' +
-          '</div>'
-        : '') +
-      '</div>';
+
+  // COMPLETED group
+  var compGrp = orders.filter(function(o) { return o.status === 'COMPLETED'; });
+  if(compGrp.length) {
+    html += '<div class="section-label">COMPLETED (' + compGrp.length + ')</div>';
+    compGrp.forEach(function(o) {
+      html += buildOrderItemHTML(o, 'COMPLETED');
     });
-  });
+  }
+
+  // IN PROGRESS group
+  var progGrp = orders.filter(function(o) { return o.status === 'IN PROGRESS'; });
+  if(progGrp.length) {
+    html += '<div class="section-label">IN PROGRESS (' + progGrp.length + ')</div>';
+    progGrp.forEach(function(o) {
+      html += buildOrderItemHTML(o, 'IN PROGRESS');
+    });
+  }
+
+  // ON THE WAY group — PENDING but driver already departed
+  var otwGrp = orders.filter(function(o) { return o.status === 'PENDING' && _onTheWayIds[o.orderId]; });
+  if(otwGrp.length) {
+    html += '<div class="section-label" style="color:#7C3AED">🚚 ON THE WAY (' + otwGrp.length + ')</div>';
+    otwGrp.forEach(function(o) {
+      html += buildOrderItemHTML(o, 'ON THE WAY');
+    });
+  }
+
+  // TRUE PENDING group — not yet departed
+  var truePendGrp = orders.filter(function(o) { return o.status === 'PENDING' && !_onTheWayIds[o.orderId]; });
+  if(truePendGrp.length) {
+    html += '<div class="section-label" style="color:#D97706">⏳ WAITING TO DEPART (' + truePendGrp.length + ')</div>';
+    truePendGrp.forEach(function(o) {
+      html += buildOrderItemHTML(o, 'PENDING');
+    });
+  }
+
   document.getElementById('orders-list').innerHTML = html;
-  // Show Save All button only if there are pending/in-progress orders with reassign dropdowns
   var hasPending = orders.some(function(o) { return o.status !== 'COMPLETED'; });
   document.getElementById('btn-save-all-assign').style.display = hasPending ? 'block' : 'none';
+}
+
+function buildOrderItemHTML(o, displayStatus) {
+  var isBiz = !!o.invoiceNum;
+  var cls = '';
+  var statusBadge = '';
+
+  if(displayStatus === 'ON THE WAY') {
+    cls = 'order-item-ontheway';
+    statusBadge = '<span class="status-ontheway">🚚 ON THE WAY</span>';
+  } else if(displayStatus === 'IN PROGRESS') {
+    cls = 'order-item-progress';
+    statusBadge = '<span class="status-progress">▶ IN PROGRESS</span>';
+  } else if(displayStatus === 'COMPLETED') {
+    cls = 'order-item-done';
+    statusBadge = '<span class="status-done">✓ DONE</span>';
+  } else {
+    // TRUE PENDING
+    cls = isBiz ? 'order-item-biz' : 'order-item-personal';
+    statusBadge = '<span class="status-pending">⏳ PENDING</span>';
+  }
+
+  var driverBadge = '';
+  if(displayStatus === 'ON THE WAY') {
+    driverBadge = '<span style="background:#EDE9FE;color:#7C3AED;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid #C4B5FD">🚚 ' + (_onTheWayIds[o.orderId] || o.driver || '') + '</span>';
+  } else if(o.driver) {
+    driverBadge = '<span style="background:#EFF6FF;color:#1F4E79;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;border:1px solid #BFDBFE">' + o.driver + '</span>';
+  } else {
+    driverBadge = '<span style="font-size:11px;color:#EF4444;font-weight:600">Unassigned</span>';
+  }
+
+  var html = '<div class="order-item ' + cls + '">' +
+    '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">' +
+      '<span style="font-size:14px;font-weight:600">' + o.businessName + '</span>' +
+      (o.invoiceNum ? '<span style="font-size:12px;font-weight:600;color:#059669;background:#D1FAE5;padding:1px 7px;border-radius:4px">' + o.invoiceNum + '</span>' : '') +
+      statusBadge +
+      (isBiz ? '<span class="biz-tag">Business</span>' : '<span class="personal-tag">Personal</span>') +
+      payBadge(o.payment || 'Cash') +
+      driverBadge +
+    '</div>' +
+    '<div style="display:flex;gap:10px;font-size:12px;color:#64748B;flex-wrap:wrap">' +
+      (o.billAmount ? '<span>Bill: P' + o.billAmount + '</span>' : '') +
+      (o.change && o.payment === 'Cash' ? '<span style="color:#059669;font-weight:600">Change: P' + o.change + '</span>' : '') +
+      (o.completeTime ? '<span>Done: ' + o.completeTime + '</span>' : '') +
+    '</div>' +
+    (o.notes ? '<div style="background:#FEF3C7;border-radius:5px;padding:5px 8px;font-size:12px;color:#92400E;margin-top:6px;font-weight:500">' + o.notes + '</div>' : '');
+
+  if(displayStatus !== 'COMPLETED') {
+    html += '<div style="display:flex;gap:6px;margin-top:8px;align-items:center">' +
+      '<select id="ra-' + o.rowNum + '" style="flex:1;padding:6px 8px;font-size:12px;border:1px solid #D1D5DB;border-radius:5px">' +
+        '<option value="">Reassign...</option>' +
+        DRIVERS.map(function(d) { return '<option' + (o.driver === d ? ' selected' : '') + '>' + d + '</option>'; }).join('') +
+      '</select>' +
+      '<button class="btn-blue-off" onclick="reassign(\'' + o.orderId + '\',' + o.rowNum + ')">Save</button>' +
+      '<button class="btn-danger-off" onclick="delOrder(\'' + o.orderId + '\')">Del</button>' +
+    '</div>';
+  }
+
+  html += '</div>';
+  return html;
 }
 
 async function saveAllAssignments() {
@@ -1212,10 +1181,10 @@ async function saveAllAssignments() {
   btn.textContent = 'Saving...'; btn.disabled = true;
   var tasks = [];
   allOrders.forEach(function(o) {
-    if(o.status !== 'PENDING') return; // only PENDING can be reassigned
+    if(o.status !== 'PENDING') return;
     var sel = document.getElementById('ra-' + o.rowNum);
     if(!sel || !sel.value) return;
-    if(sel.value === o.driver) return; // no change
+    if(sel.value === o.driver) return;
     tasks.push({ orderId: o.orderId, driver: sel.value });
   });
   if(!tasks.length) {
@@ -1230,9 +1199,7 @@ async function saveAllAssignments() {
     var success = results.filter(function(r) { return r && r.success; }).length;
     toast('toast-ord', success + ' assignment(s) saved!', true);
     loadOrders();
-  } catch(e) {
-    toast('toast-ord', 'Error: ' + e.message, false);
-  }
+  } catch(e) { toast('toast-ord', 'Error: ' + e.message, false); }
   btn.textContent = 'Save All'; btn.disabled = false;
 }
 
@@ -1272,23 +1239,15 @@ async function drvSelectName() {
   document.getElementById('drv-s2').style.display = 'block';
   document.getElementById('drv-name-disp').textContent = driver;
 
-  // Populate special run selects with current driver
-  var sd = document.getElementById('special-driver');
-  if(sd) {
-    sd.innerHTML = '<option value="">-- Select Driver --</option>' +
-      DRIVERS.map(function(d) { return '<option' + (d===driver?' selected':'') + '>' + d + '</option>'; }).join('');
-  }
   var sc = document.getElementById('special-codrv');
   if(sc) {
     sc.innerHTML = '<option value="">None</option>' +
       DRIVERS.filter(function(d) { return d !== driver; }).map(function(d) { return '<option>' + d + '</option>'; }).join('');
   }
 
-  // Show special run section
   var specSec = document.getElementById('drv-special-section');
   if(specSec) specSec.style.display = 'block';
 
-  // Check if THIS driver has an active special run stored
   var spKey = 'hmart_special_run_' + driver;
   var spData = null;
   try { var spRaw = localStorage.getItem(spKey); if(spRaw) spData = JSON.parse(spRaw); } catch(e) {}
@@ -1312,7 +1271,6 @@ async function drvSelectName() {
     if(toggleBtn2) { toggleBtn2.style.display = 'block'; toggleBtn2.textContent = '+ Open'; }
   }
 
-  // Filter normal codriver - remove self
   var cSel = document.getElementById('drv-codrv');
   Array.from(cSel.options).forEach(function(opt) {
     opt.disabled = opt.value === driver;
@@ -1323,7 +1281,6 @@ async function drvSelectName() {
 }
 
 async function drvLoadData() {
-  // Show loading state immediately
   var preview = document.getElementById('drv-orders-preview');
   if(preview) preview.innerHTML = '<div style="text-align:center;padding:20px;color:#64748B"><div style="font-size:28px;animation:spin 1s linear infinite;display:inline-block">⟳</div><div style="margin-top:8px;font-size:13px">Loading orders...</div></div>';
   try {
@@ -1337,7 +1294,6 @@ async function drvLoadData() {
     var busyVehicles = activeRuns.map(function(r) { return r.vehicle; });
     var busyPlates   = activeRuns.map(function(r) { return r.plate; });
 
-    // Filter special run vehicle select too
     var spVSel = document.getElementById('special-vehicle');
     if(spVSel) {
       Array.from(spVSel.options).forEach(function(opt) {
@@ -1357,7 +1313,6 @@ async function drvLoadData() {
     if(vSel) {
       Array.from(vSel.options).forEach(function(opt) {
         if(!opt.value || opt.label === undefined) return;
-        // Match by vehicle name OR plate
         var optText = opt.text.replace(' [IN USE]','');
         var optName = optText.split(' (')[0].trim();
         var optPlate = (optText.match(/\(([^)]+)\)/) || [])[1] || '';
@@ -1372,14 +1327,12 @@ async function drvLoadData() {
       });
     }
 
-    // Check for special run (destination starts with 🚨)
     var specialServerRun = runs.find(function(r) {
       return r.driver === curDriver && r.status === 'IN PROGRESS' &&
              r.destination && r.destination.indexOf('🚨') === 0;
     });
 
     if(specialServerRun) {
-      // Show special run completion screen
       specialRunActive = true;
       var infoEl = document.getElementById('special-run-info');
       if(infoEl) infoEl.innerHTML = '🚨 <strong>' + specialServerRun.destination.replace('🚨 ','') + '</strong> | ' + specialServerRun.vehicle + ' | Dep: <strong>' + specialServerRun.depKm + ' km</strong>';
@@ -1487,15 +1440,12 @@ function renderDelCards(orders) {
 async function startDel(orderId) {
   var order = (drvOrders || []).find ? (drvOrders || []).find(function(o) { return o.orderId === orderId; }) : null;
   if(!order) { drvLoadData(); return; }
-
-  // Optimistic UI - update locally first for instant feedback
   order.status = order.status === 'IN PROGRESS' ? 'PENDING' : 'IN PROGRESS';
   activeDelId = order.status === 'IN PROGRESS' ? orderId : null;
   var runOrds = drvCurrentRunIds && drvCurrentRunIds.length > 0
     ? drvOrders.filter(function(o) { return drvCurrentRunIds.indexOf(o.orderId) > -1; })
     : drvOrders.filter(function(o) { return o.driver === curDriver; });
   renderDelCards(runOrds);
-
   if(order.status === 'IN PROGRESS') {
     var r2 = await apiPost('setOrderInProgress', { orderId: orderId });
     if(r2 && r2.success) { toast('drv-toast', 'Started!', true); }
@@ -1518,7 +1468,6 @@ function confirmComplete(orderId) {
   var overlay = document.createElement('div');
   overlay.id = 'confirm-overlay';
   overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
-
   var box = document.createElement('div');
   box.style.cssText = 'background:#fff;border-radius:16px;padding:24px;max-width:320px;width:100%;text-align:center';
   box.innerHTML =
@@ -1529,10 +1478,8 @@ function confirmComplete(orderId) {
       '<button id="confirm-cancel-btn" style="flex:1;padding:14px;font-size:15px;font-weight:600;background:#F1F5F9;color:#374151;border:none;border-radius:10px;cursor:pointer">Cancel</button>' +
       '<button id="confirm-ok-btn" style="flex:1;padding:14px;font-size:15px;font-weight:700;background:#059669;color:#fff;border:none;border-radius:10px;cursor:pointer">Confirm</button>' +
     '</div>';
-
   overlay.appendChild(box);
   document.body.appendChild(overlay);
-
   document.getElementById('confirm-cancel-btn').onclick = function() { overlay.remove(); };
   document.getElementById('confirm-ok-btn').onclick = function() { overlay.remove(); completeDel(orderId); };
 }
@@ -1602,18 +1549,18 @@ function switchTab(t) {
   else if(t === 'fuel') loadFuel();
 }
 
-var _onTheWayIds = {}; // global: orderId -> driver, updated on loadLive
-
 async function loadLive() {
   try {
     var data = await apiGet('getOfficeData');
     var runs   = (data && data.runs)   || [];
     var orders = (data && data.orders) || [];
+
     // Update global on-the-way tracker
     _onTheWayIds = {};
     runs.filter(function(r) { return r.status === 'IN PROGRESS'; }).forEach(function(r) {
       if(r.orderIds) r.orderIds.forEach(function(id) { _onTheWayIds[id] = r.driver; });
     });
+
     var done   = runs.filter(function(r) { return r.status === 'COMPLETED'; });
     var totalKm    = done.reduce(function(s,r) { return s + (parseFloat(r.distKm)||0); }, 0);
     var compOrds   = orders.filter(function(o) { return o.status === 'COMPLETED'; });
@@ -1625,6 +1572,8 @@ async function loadLive() {
 
     var html = '';
     var active = runs.filter(function(r) { return r.status === 'IN PROGRESS'; });
+
+    // ── ACTIVE RUNS ──
     if(active.length) {
       html += '<div class="section-label">On the road (' + active.length + ')</div>';
       active.forEach(function(r) {
@@ -1649,9 +1598,11 @@ async function loadLive() {
         '</div>';
       });
     }
+
+    // ── COMPLETED RUNS ──
     var comp = runs.filter(function(r) { return r.status === 'COMPLETED'; });
     if(comp.length) {
-      html += '<div class="section-label">Completed</div>';
+      html += '<div class="section-label">Completed Runs</div>';
       comp.forEach(function(r) {
         html += '<div class="run-card-done"><div style="display:flex;align-items:center;gap:8px">' +
           '<span style="font-size:14px;font-weight:600">' + r.driver + '</span>' +
@@ -1660,14 +1611,36 @@ async function loadLive() {
           '</div><div style="font-size:12px;color:#64748B;margin-top:4px">' + r.vehicle + ' | +' + r.distKm + ' km</div></div>';
       });
     }
+
+    // ── ON THE WAY (PENDING but driver departed) ──
     var pend = orders.filter(function(o) { return o.status === 'PENDING'; });
-    if(pend.length) {
-      html += '<div class="section-label">Pending <span class="notif-dot"></span></div>';
-      pend.forEach(function(o) {
+    var onTheWay    = pend.filter(function(o) { return _onTheWayIds[o.orderId]; });
+    var trulyPending = pend.filter(function(o) { return !_onTheWayIds[o.orderId]; });
+
+    if(onTheWay.length) {
+      html += '<div class="section-label" style="color:#7C3AED;font-size:12px">🚚 ON THE WAY — Driver departed, not yet delivered (' + onTheWay.length + ')</div>';
+      onTheWay.forEach(function(o) {
+        html += '<div class="order-item order-item-ontheway">' +
+          '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+            '<span style="font-size:14px;font-weight:600">' + o.businessName + '</span>' +
+            '<span class="status-ontheway">🚚 ON THE WAY</span>' +
+            payBadge(o.payment||'Cash') +
+            '<span style="background:#EDE9FE;color:#7C3AED;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid #C4B5FD">👤 ' + (_onTheWayIds[o.orderId]||'') + '</span>' +
+          '</div>' +
+          (o.billAmount ? '<div style="font-size:12px;color:#64748B;margin-top:3px">Bill: P' + o.billAmount + (o.change && o.payment==='Cash' ? ' | Change: P' + o.change : '') + '</div>' : '') +
+          (o.notes ? '<div style="background:#EDE9FE;border-radius:5px;padding:5px 8px;font-size:12px;color:#6D28D9;margin-top:6px">' + o.notes + '</div>' : '') +
+        '</div>';
+      });
+    }
+
+    // ── TRULY PENDING (no driver departed yet) ──
+    if(trulyPending.length) {
+      html += '<div class="section-label" style="color:#D97706;font-size:12px">⏳ WAITING TO DEPART — Driver has not left yet (' + trulyPending.length + ')</div>';
+      trulyPending.forEach(function(o) {
         html += '<div class="order-item ' + (o.invoiceNum ? 'order-item-biz' : 'order-item-personal') + '">' +
           '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
             '<span style="font-size:14px;font-weight:600">' + o.businessName + '</span>' +
-            '<span class="status-pending">PENDING</span>' +
+            '<span class="status-pending">⏳ PENDING</span>' +
             payBadge(o.payment||'Cash') +
             (o.driver ? '<span style="background:#EFF6FF;color:#1F4E79;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;border:1px solid #BFDBFE">' + o.driver + '</span>' : '<span style="font-size:11px;color:#EF4444;font-weight:600">Unassigned</span>') +
           '</div>' +
@@ -1675,6 +1648,7 @@ async function loadLive() {
         '</div>';
       });
     }
+
     // ── VEHICLE STATUS ──
     html += '<div class="section-label" style="margin-top:16px">Fleet Status</div>';
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;margin-bottom:8px">';
@@ -1705,7 +1679,6 @@ async function loadLive() {
     html += '<div class="section-label">Driver Status Today</div>';
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px">';
     var activeDrivers = active.map(function(r) { return r.driver; });
-    var doneDrivers = comp.map(function(r) { return r.driver; });
     var nowMins = new Date().getHours()*60 + new Date().getMinutes();
     DRIVERS.forEach(function(d) {
       var onRoad = activeDrivers.indexOf(d) > -1;
@@ -1714,16 +1687,12 @@ async function loadLive() {
       var bStart = actualB || sched.breakStart;
       var bsMins = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
       var onBreak = !onRoad && bsMins > -1 && nowMins >= bsMins && nowMins < bsMins + 60;
-      var beMins = -1; // kept for reference
       var statusColor = onRoad ? '#1D4ED8' : onBreak ? '#F59E0B' : '#059669';
       var statusText  = onRoad ? '🚚 On Road' : onBreak ? '☕ On Break' : '✓ Available';
       var activeRun   = onRoad ? active.find(function(r) { return r.driver === d; }) : null;
-      // Check if this driver is a codriver on a run
       var asCoDriver = active.find(function(r) { return r.coDriver === d; });
       if(!onRoad && asCoDriver) {
-        onRoad = true;
-        statusColor = '#7C3AED';
-        statusText = '🚗 Co-Driver';
+        onRoad = true; statusColor = '#7C3AED'; statusText = '🚗 Co-Driver';
       }
       html += '<div style="background:' + statusColor + ';border-radius:8px;padding:10px 12px">' +
         '<div style="font-size:13px;font-weight:700;color:#fff">' + d + '</div>' +
@@ -2030,12 +1999,10 @@ function renderReport(data) {
 function printReport(){window.print();}
 
 // ---- ATTENDANCE ----
-// driverSchedules: { ROMEL: { clockin:'08:00', breakStart:'12:00', clockout:'17:00', notes:'' }, ... }
 var driverSchedules = {};
-var actualBreaks = {}; // { ROMEL: '13:15' } — actual break start today
-
-var actualClockouts = {};   // { ROMEL: '18:20' }
-var overtimeBalance = {};   // { ROMEL: 20 } minutes
+var actualBreaks = {};
+var actualClockouts = {};
+var overtimeBalance = {};
 
 (function(){
   try {
@@ -2053,17 +2020,6 @@ var overtimeBalance = {};   // { ROMEL: 20 } minutes
 
 function getDriverSched(driver) {
   return driverSchedules[driver] || { clockin:'08:00', breakStart:'12:00', clockout:'17:00', notes:'' };
-}
-
-function isOnBreakNow(driver) {
-  var now = new Date();
-  var nowMins = now.getHours()*60 + now.getMinutes();
-  // Use actual break if recorded, else scheduled
-  var bStart = actualBreaks[driver] || getDriverSched(driver).breakStart;
-  if(!bStart) return false;
-  var bMins = parseInt(bStart.split(':')[0])*60 + parseInt(bStart.split(':')[1]);
-  // Break assumed to be 1 hour
-  return nowMins >= bMins && nowMins < bMins + 60;
 }
 
 function buildAttDriverTable() {
@@ -2088,8 +2044,6 @@ function buildAttDriverTable() {
       '</tr>';
     }).join('') +
     '</tbody></table></div>';
-
-  // populate break driver select
   var sel = document.getElementById('att-break-driver');
   if(sel) {
     sel.innerHTML = '<option value="">-- Select --</option>' +
@@ -2105,12 +2059,7 @@ function saveAllOverrides() {
     var co = document.getElementById('sc-co-' + d);
     var nt = document.getElementById('sc-nt-' + d);
     if(!ci) return;
-    driverSchedules[d] = {
-      clockin:    ci.value || '',
-      breakStart: bs ? bs.value || '' : '',
-      clockout:   co ? co.value || '' : '',
-      notes:      nt ? nt.value || '' : ''
-    };
+    driverSchedules[d] = { clockin: ci.value||'', breakStart: bs?bs.value||'':'', clockout: co?co.value||'':'', notes: nt?nt.value||'':'' };
     changed++;
   });
   try { localStorage.setItem('hmart_driver_schedules', JSON.stringify(driverSchedules)); } catch(e) {}
@@ -2124,29 +2073,24 @@ function saveActualTimes() {
   var clockout = document.getElementById('att-actual-clockout').value;
   if(!driver) { toast('toast-att', 'Select a driver', false); return; }
   if(!breakT && !clockout) { toast('toast-att', 'Enter at least one time', false); return; }
-
   var attDate = document.getElementById('att-date') ? document.getElementById('att-date').value : new Date().toISOString().slice(0,10);
-
   if(breakT) {
     actualBreaks[driver] = breakT;
     try { localStorage.setItem('hmart_actual_breaks_' + attDate, JSON.stringify(actualBreaks)); } catch(e) {}
   }
-
   if(clockout) {
     actualClockouts[driver] = clockout;
     try { localStorage.setItem('hmart_actual_clockouts_' + attDate, JSON.stringify(actualClockouts)); } catch(e) {}
-    // Calculate overtime
     var sched = getDriverSched(driver);
     if(sched.clockout) {
       var schedMins = parseInt(sched.clockout.split(':')[0])*60 + parseInt(sched.clockout.split(':')[1]);
       var actMins   = parseInt(clockout.split(':')[0])*60 + parseInt(clockout.split(':')[1]);
-      var diff = actMins - schedMins; // positive = overtime, negative = undertime
+      var diff = actMins - schedMins;
       if(!overtimeBalance[driver]) overtimeBalance[driver] = 0;
       overtimeBalance[driver] += diff;
       try { localStorage.setItem('hmart_overtime_balance', JSON.stringify(overtimeBalance)); } catch(e) {}
     }
   }
-
   var msg = driver + ' updated';
   if(breakT) msg += ' | Break: ' + breakT;
   if(clockout) msg += ' | Out: ' + clockout;
@@ -2159,7 +2103,6 @@ function renderOvertimeList() {
   var el = document.getElementById('overtime-list');
   if(!el) return;
   var hasData = false;
-  var C_GREEN = '#059669';
   var html = DRIVERS.map(function(d) {
     var bal = overtimeBalance[d] || 0;
     if(bal === 0) return '';
@@ -2168,7 +2111,7 @@ function renderOvertimeList() {
     var h = Math.floor(Math.abs(bal)/60);
     var m = Math.abs(bal) % 60;
     var label = isOT ? 'OT Credit' : 'Undertime';
-    var color = isOT ? C_GREEN : '#DC2626';
+    var color = isOT ? '#059669' : '#DC2626';
     var bg    = isOT ? '#D1FAE5' : '#FEE2E2';
     return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:' + bg + ';border-radius:6px;margin-bottom:5px">' +
       '<span style="font-size:13px;font-weight:600">' + d + '</span>' +
@@ -2179,21 +2122,14 @@ function renderOvertimeList() {
       '</div>' +
     '</div>';
   }).join('');
-  var C_GREEN = '#059669';
   el.innerHTML = '';
   if(!hasData) el.innerHTML = '<div class="empty" style="font-size:12px">No overtime/undertime recorded</div>';
   else el.innerHTML = html;
 }
 
 function useOTCredit(driver, apply) {
-  // apply=true: driver uses their credit (reduce balance)
-  // apply=false: clear balance
   if(!confirm('Update ' + driver + ' balance?')) return;
-  if(!apply) {
-    overtimeBalance[driver] = 0;
-  }
-  // If applying, it's recorded as used - balance clears
-  if(apply) overtimeBalance[driver] = 0;
+  overtimeBalance[driver] = 0;
   try { localStorage.setItem('hmart_overtime_balance', JSON.stringify(overtimeBalance)); } catch(e) {}
   renderOvertimeList();
   toast('toast-att', driver + ' balance updated', true);
@@ -2210,12 +2146,9 @@ function calcHours(start, end) {
 
 function loadAttendance() {
   buildAttDriverTable();
-
-  // Init date input to today if empty
   var dateEl = document.getElementById('att-date');
   if(dateEl) {
     if(!dateEl.value) dateEl.value = new Date().toISOString().slice(0,10);
-    // Load actual times for selected date
     var selDate = dateEl.value;
     try {
       var ab = localStorage.getItem('hmart_actual_breaks_' + selDate);
@@ -2224,9 +2157,7 @@ function loadAttendance() {
       actualClockouts = ac ? JSON.parse(ac) : {};
     } catch(e) { actualBreaks = {}; actualClockouts = {}; }
   }
-
   renderOvertimeList();
-
   var now = new Date();
   var nowMins = now.getHours()*60 + now.getMinutes();
   var html = DRIVERS.map(function(d) {
@@ -2235,14 +2166,10 @@ function loadAttendance() {
     var bStart = actualB || sc.breakStart;
     var bMins = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
     var onBreak = bMins > -1 && nowMins >= bMins && nowMins < bMins + 60;
-    var noBreakRecorded = !actualB && !sc.breakStart;
     var statusColor = onBreak ? '#F59E0B' : '#059669';
     var statusText  = onBreak ? '☕ On Break' : '✓ Available';
-
-    // Warning: if scheduled break was > 30min ago and no actual break recorded
     var schedBMins = sc.breakStart ? parseInt(sc.breakStart.split(':')[0])*60+parseInt(sc.breakStart.split(':')[1]) : -1;
     var breakOverdue = !actualB && schedBMins > -1 && nowMins > schedBMins + 30;
-
     return '<div style="background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:12px;margin-bottom:8px;border-left:4px solid ' + statusColor + '">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">' +
         '<div style="font-size:14px;font-weight:700">' + d + '</div>' +
@@ -2291,7 +2218,6 @@ setInterval(function(){
 
 addFastRow();
 loadOrders();
-
 
 // ---- SPECIAL RUN ----
 var selectedSpecialType = '';
@@ -2392,52 +2318,7 @@ async function specialArrive() {
     } else toast('drv-toast', (r && r.message) || 'Error', false);
   } catch(e) { btn.textContent = 'Complete Special Run ✓'; btn.disabled = false; toast('drv-toast', 'Error: ' + e.message, false); }
 }
-
 </script>
 
 </body>
-</html    var pend   = orders.filter(function(o) { return o.status === 'PENDING'; });
-
-    // Build on-the-way map from active runs
-    var onTheWayIds = {};
-    active.forEach(function(r) {
-      if(r.orderIds) r.orderIds.forEach(function(id) { onTheWayIds[id] = r.driver; });
-    });
-    // Update global tracker too
-    _onTheWayIds = Object.assign({}, onTheWayIds);
-
-    var onTheWay    = pend.filter(function(o) { return onTheWayIds[o.orderId]; });
-    var trulyPending = pend.filter(function(o) { return !onTheWayIds[o.orderId]; });
-
-    if(onTheWay.length) {
-      html += '<div class="section-label">On the Way (' + onTheWay.length + ')</div>';
-      onTheWay.forEach(function(o) {
-        html += '<div class="order-item order-item-progress">' +
-          '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
-            '<span style="font-size:14px;font-weight:600">' + o.businessName + '</span>' +
-            '<span class="status-progress">▶ ON THE WAY</span>' +
-            payBadge(o.payment||'Cash') +
-            '<span style="background:#EFF6FF;color:#1F4E79;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;border:1px solid #BFDBFE">' + (onTheWayIds[o.orderId]||'') + '</span>' +
-          '</div>' +
-          (o.billAmount ? '<div style="font-size:12px;color:#64748B;margin-top:3px">Bill: P' + o.billAmount + (o.change && o.payment==='Cash' ? ' | Change: P' + o.change : '') + '</div>' : '') +
-          (o.notes ? '<div style="background:#FEF3C7;border-radius:5px;padding:5px 8px;font-size:12px;color:#92400E;margin-top:6px">' + o.notes + '</div>' : '') +
-        '</div>';
-      });
-    }
-
-    if(trulyPending.length) {
-      html += '<div class="section-label">Pending <span class="notif-dot"></span></div>';
-      trulyPending.forEach(function(o) {
-        html += '<div class="order-item ' + (o.invoiceNum ? 'order-item-biz' : 'order-item-personal') + '">' +
-          '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
-            '<span style="font-size:14px;font-weight:600">' + o.businessName + '</span>' +
-            '<span class="status-pending">PENDING</span>' +
-            payBadge(o.payment||'Cash') +
-            (o.driver ? '<span style="background:#EFF6FF;color:#1F4E79;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;border:1px solid #BFDBFE">' + o.driver + '</span>' : '<span style="font-size:11px;color:#EF4444;font-weight:600">Unassigned</span>') +
-          '</div>' +
-          (o.notes ? '<div style="background:#FEF3C7;border-radius:5px;padding:5px 8px;font-size:12px;color:#92400E;margin-top:6px">' + o.notes + '</div>' : '') +
-        '</div>';
-      });
-    }
-
->
+</html>
