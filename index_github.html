@@ -1318,7 +1318,6 @@ async function drvLoadData() {
   var preview = document.getElementById('drv-orders-preview');
   if(preview) preview.innerHTML = '<div style="text-align:center;padding:20px;color:#64748B"><div style="font-size:28px;animation:spin 1s linear infinite;display:inline-block">⟳</div><div style="margin-top:8px;font-size:13px">Loading orders...</div></div>';
   try {
-    // Clear cache for fresh data on driver screen
     delete _cache['getOfficeData{}'];
     var data = await apiGet('getOfficeData');
     var orders = (data && data.orders) || [];
@@ -1364,10 +1363,34 @@ async function drvLoadData() {
       });
     }
 
-    var activeRun = runs.filter(function(r) { return r.driver === curDriver && r.status === 'IN PROGRESS'; });
+    // Check for special run (destination starts with 🚨)
+    var specialServerRun = runs.find(function(r) {
+      return r.driver === curDriver && r.status === 'IN PROGRESS' &&
+             r.destination && r.destination.indexOf('🚨') === 0;
+    });
+
+    if(specialServerRun) {
+      // Show special run completion screen
+      specialRunActive = true;
+      var infoEl = document.getElementById('special-run-info');
+      if(infoEl) infoEl.innerHTML = '🚨 <strong>' + specialServerRun.destination.replace('🚨 ','') + '</strong> | ' + specialServerRun.vehicle + ' | Dep: <strong>' + specialServerRun.depKm + ' km</strong>';
+      var spSec = document.getElementById('drv-special-section');
+      var spForm = document.getElementById('special-run-form');
+      var spActive = document.getElementById('special-active');
+      var spBtn = document.getElementById('special-toggle-btn');
+      if(spSec) spSec.style.display = 'block';
+      if(spForm) spForm.style.display = 'none';
+      if(spActive) spActive.style.display = 'block';
+      if(spBtn) spBtn.style.display = 'none';
+    }
+
+    var activeRun = runs.filter(function(r) {
+      return r.driver === curDriver && r.status === 'IN PROGRESS' &&
+             (!r.destination || r.destination.indexOf('🚨') !== 0);
+    });
     if(activeRun.length) {
       showActiveRun(activeRun[activeRun.length - 1], orders);
-    } else {
+    } else if(!specialServerRun) {
       showPreDep(orders);
     }
   } catch(e) { toast('drv-toast', 'Error loading data', false); }
