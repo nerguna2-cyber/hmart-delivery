@@ -55,6 +55,21 @@ html{width:100%;overflow-x:hidden}
 .back-btn{background:rgba(255,255,255,0.2);border:none;color:#fff;padding:8px 14px;border-radius:6px;font-size:13px;cursor:pointer}
 .btn-sm{padding:7px 13px;font-size:12px;background:transparent;border:1px solid #D1D5DB;border-radius:6px;color:#374151;cursor:pointer}
 
+/* ── AMOUNT BLINK WARNING ── */
+@keyframes amtBlink{0%,100%{background:#FEE2E2;color:#991B1B}50%{background:#FCA5A5;color:#7F1D1D}}
+.amt-missing{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:5px;animation:amtBlink 1.2s infinite;cursor:pointer;border:1px solid #F87171}
+
+/* ── INLINE EDIT AREA ── */
+.inline-edit{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:10px 12px;margin-top:8px}
+.inline-edit .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.inline-edit label{display:block;font-size:11px;font-weight:600;color:#64748B;margin-bottom:4px}
+.inline-edit input{width:100%;padding:7px 9px;border:1px solid #D1D5DB;border-radius:6px;font-size:13px;background:#fff;color:#111;font-family:inherit}
+.inline-edit input:focus{border-color:#1F4E79;outline:none}
+.pay-opts-inline{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px}
+.pay-opt-inline{padding:4px 10px;font-size:11px;font-weight:600;border:1.5px solid #D1D5DB;border-radius:20px;cursor:pointer;background:#fff;color:#374151}
+.pay-opt-inline.sel{border-color:#1F4E79;background:#1F4E79;color:#fff}
+.btn-save-inline{padding:7px 16px;font-size:12px;font-weight:700;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer}
+
 /* ON THE WAY card style */
 .order-item-ontheway{
   border-left:4px solid #7C3AED;
@@ -204,9 +219,6 @@ html{width:100%;overflow-x:hidden}
 <script>
 var API_URL = 'https://script.google.com/macros/s/AKfycbwdWEjLtNcEW1Z-_bj1q5hzTid5FK0eG8El7tbBlauIw0g5Di1nOhrxU_z6Oe1ZKy1h/exec';
 
-// ============================================================
-// OFFLINE QUEUE + CACHE SYSTEM
-// ============================================================
 var _jsonpId = 0;
 var _cache = {};
 var _offlineQueue = [];
@@ -376,10 +388,8 @@ function showNetworkStatus(msg, color) {
 }
 </script>
 
-<!-- Network status bar -->
 <div id="network-status" style="display:none;position:fixed;top:0;left:0;right:0;background:#F59E0B;color:#fff;text-align:center;padding:8px;font-size:13px;font-weight:600;z-index:9999"></div>
 
-<!-- PWA Install Banner -->
 <div id="install-bar" style="display:none;position:fixed;bottom:0;left:0;right:0;background:#1F4E79;color:#fff;padding:12px 16px;z-index:9998;align-items:center;justify-content:space-between;gap:12px">
   <div>
     <div style="font-size:13px;font-weight:700">📱 홈 화면에 추가하기</div>
@@ -413,7 +423,6 @@ function showNetworkStatus(msg, color) {
     </div>
     <div class="drv-body">
       <div id="drv-toast" class="toast"></div>
-
       <div id="drv-s1">
         <div class="card">
           <div class="card-title">Who are you?</div>
@@ -425,7 +434,6 @@ function showNetworkStatus(msg, color) {
           </div>
         </div>
       </div>
-
       <div id="drv-s2" style="display:none">
         <div class="card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
@@ -433,7 +441,6 @@ function showNetworkStatus(msg, color) {
             <button class="btn-sm" onclick="drvReset()">Change</button>
           </div>
           <div id="drv-safe-msg" class="safe-msg"></div>
-
           <div id="drv-predep">
             <div class="card-title">Your Orders</div>
             <div id="drv-orders-preview"></div>
@@ -473,7 +480,6 @@ function showNetworkStatus(msg, color) {
             </div>
             <button class="btn-depart" onclick="drvDepart()">Depart</button>
           </div>
-
           <div id="drv-active" style="display:none">
             <div class="info-box" id="drv-run-info"></div>
             <div class="card-title">Tap to start a delivery</div>
@@ -498,7 +504,6 @@ function showNetworkStatus(msg, color) {
         </div>
       </div>
     </div>
-
     <!-- SPECIAL / EMERGENCY RUN -->
     <div id="drv-special-section" style="display:none">
       <div style="border-top:2px dashed #F59E0B;margin:16px 0 12px;padding-top:12px">
@@ -559,7 +564,6 @@ function showNetworkStatus(msg, color) {
           <button class="btn-depart" onclick="specialDepart()" id="special-depart-btn" style="background:#F59E0B">🚨 Special / Emergency Depart</button>
         </div>
       </div>
-      <!-- Active special run -->
       <div id="special-active" style="display:none">
         <div class="card" style="border:2px solid #F59E0B">
           <div style="background:#F59E0B;color:#fff;border-radius:8px;padding:10px 12px;font-size:13px;font-weight:700;margin-bottom:12px">🚨 SPECIAL RUN IN PROGRESS</div>
@@ -662,14 +666,13 @@ function showNetworkStatus(msg, color) {
       <div id="veh-list"><div class="empty">Loading...</div></div>
     </div>
 
-    <!-- ATTENDANCE TAB -->
     <div id="tab-attendance" class="off-screen">
       <div id="toast-att" class="toast"></div>
       <div style="display:grid;grid-template-columns:400px 1fr;gap:20px">
         <div>
           <div class="off-card">
             <div class="card-title">Driver Schedules</div>
-            <div style="font-size:12px;color:#64748B;margin-bottom:10px">Set each driver's Clock In and Break Start.</div>
+            <div style="font-size:12px;color:#64748B;margin-bottom:10px">Set each driver's Clock In, Break Start, and Clock Out.</div>
             <div id="att-driver-table"><div class="empty">Loading...</div></div>
             <div style="display:flex;gap:8px;margin-top:10px">
               <button class="btn-primary-off" style="flex:1" onclick="saveAllOverrides()">Save All Schedules</button>
@@ -880,6 +883,9 @@ var adminDrivers = [];
 var adminVehicles = [];
 var _onTheWayIds = {};
 
+// inline edit payment state per order row
+var inlinePayment = {};
+
 document.getElementById('ms-date').textContent = new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
 
 (function(){
@@ -975,6 +981,9 @@ function calcChange() {
   box.style.display = 'block';
 }
 
+// ======================================================
+// FAST ROW — bill amount is now OPTIONAL
+// ======================================================
 function addFastRow() {
   var id = ++fastRowCount;
   rowPayment[id] = 'Cash';
@@ -994,7 +1003,8 @@ function addFastRow() {
       '<div><div class="fast-label">Assign Driver</div><select id="fr-d-' + id + '"><option value="">Unassigned</option>' +
         DRIVERS.map(function(d) { return '<option>' + d + '</option>'; }).join('') +
       '</select></div>' +
-      '<div><div class="fast-label">Bill Amount P</div><input type="number" id="fr-b-' + id + '" placeholder="0" inputmode="numeric" oninput="frCalc(' + id + ')"></div>' +
+      /* Bill amount optional — label says "(opt)" */
+      '<div><div class="fast-label">Bill Amount P <span style="color:#94A3B8;font-weight:400">(opt)</span></div><input type="number" id="fr-b-' + id + '" placeholder="Enter later" inputmode="numeric" oninput="frCalc(' + id + ')"></div>' +
     '</div>' +
     '<div class="row2" style="margin-bottom:8px">' +
       '<div><div class="fast-label">Given P (opt)</div><input type="number" id="fr-g-' + id + '" placeholder="auto" inputmode="numeric" oninput="frCalc(' + id + ')"></div>' +
@@ -1033,6 +1043,9 @@ function selPayment(id, p) {
   frCalc(id);
 }
 
+// ======================================================
+// SAVE ORDERS — bill amount no longer required
+// ======================================================
 async function saveAllOrders() {
   var rows = document.getElementById('fast-rows').children;
   if(!rows.length) { toast('toast-ord', 'Add at least one order', false); return; }
@@ -1041,12 +1054,12 @@ async function saveAllOrders() {
     var nEl = document.getElementById('fr-n-' + i);
     if(!nEl) continue;
     var name = nEl.value.trim();
-    if(!name) { toast('toast-ord', 'Business name required', false); valid = false; break; }
+    if(!name) { toast('toast-ord', 'Business name is required', false); valid = false; break; }
     orders.push({
       businessName: name,
       invoiceNum:   document.getElementById('fr-i-' + i).value.trim(),
       driver:       document.getElementById('fr-d-' + i).value,
-      billAmount:   document.getElementById('fr-b-' + i).value || '',
+      billAmount:   document.getElementById('fr-b-' + i).value || '',   // may be empty
       change:       document.getElementById('fr-c-' + i).value || '',
       payment:      rowPayment[i] || 'Cash',
       notes:        document.getElementById('fr-notes-' + i).value.trim()
@@ -1067,7 +1080,9 @@ async function saveAllOrders() {
   } catch(e) { btn.textContent = 'Save All Orders'; btn.disabled = false; toast('toast-ord', 'Error: ' + e.message, false); }
 }
 
-// ---- ORDERS LIST ----
+// ======================================================
+// ORDERS LIST
+// ======================================================
 async function loadOrders() {
   var listEl = document.getElementById('orders-list');
   var refreshBtn = document.querySelector('#tab-orders .btn-sm-off');
@@ -1094,28 +1109,24 @@ function renderOrders() {
   if(!orders.length) { document.getElementById('orders-list').innerHTML = '<div class="empty">No orders yet today</div>'; return; }
   var html = '';
 
-  // 1. TRUE PENDING — not yet departed (driver hasn't left)
   var truePendGrp = orders.filter(function(o) { return o.status === 'PENDING' && !_onTheWayIds[o.orderId]; });
   if(truePendGrp.length) {
     html += '<div class="section-label" style="color:#D97706">⏳ WAITING TO DEPART (' + truePendGrp.length + ')</div>';
     truePendGrp.forEach(function(o) { html += buildOrderItemHTML(o, 'PENDING'); });
   }
 
-  // 2. IN PROGRESS — driver tapped "Start Delivery"
   var progGrp = orders.filter(function(o) { return o.status === 'IN PROGRESS'; });
   if(progGrp.length) {
     html += '<div class="section-label">▶ IN PROGRESS (' + progGrp.length + ')</div>';
     progGrp.forEach(function(o) { html += buildOrderItemHTML(o, 'IN PROGRESS'); });
   }
 
-  // 3. ON THE WAY — PENDING but driver already departed with this order
   var otwGrp = orders.filter(function(o) { return o.status === 'PENDING' && _onTheWayIds[o.orderId]; });
   if(otwGrp.length) {
     html += '<div class="section-label" style="color:#7C3AED">🚚 ON THE WAY (' + otwGrp.length + ')</div>';
     otwGrp.forEach(function(o) { html += buildOrderItemHTML(o, 'ON THE WAY'); });
   }
 
-  // 4. COMPLETED — last
   var compGrp = orders.filter(function(o) { return o.status === 'COMPLETED'; });
   if(compGrp.length) {
     html += '<div class="section-label">✓ COMPLETED (' + compGrp.length + ')</div>';
@@ -1125,12 +1136,23 @@ function renderOrders() {
   document.getElementById('orders-list').innerHTML = html;
   var hasPending = orders.some(function(o) { return o.status !== 'COMPLETED'; });
   document.getElementById('btn-save-all-assign').style.display = hasPending ? 'block' : 'none';
+
+  // init inline payment state for all pending orders
+  orders.forEach(function(o) {
+    if(o.status !== 'COMPLETED') {
+      inlinePayment[o.orderId] = o.payment || 'Cash';
+    }
+  });
 }
 
+// ======================================================
+// BUILD ORDER ITEM HTML — with inline edit for PENDING/IN PROGRESS/ON THE WAY
+// ======================================================
 function buildOrderItemHTML(o, displayStatus) {
   var isBiz = !!o.invoiceNum;
   var cls = '';
   var statusBadge = '';
+  var isEditable = (displayStatus !== 'COMPLETED');
 
   if(displayStatus === 'ON THE WAY') {
     cls = 'order-item-ontheway';
@@ -1142,7 +1164,6 @@ function buildOrderItemHTML(o, displayStatus) {
     cls = 'order-item-done';
     statusBadge = '<span class="status-done">✓ DONE</span>';
   } else {
-    // TRUE PENDING
     cls = isBiz ? 'order-item-biz' : 'order-item-personal';
     statusBadge = '<span class="status-pending">⏳ PENDING</span>';
   }
@@ -1156,7 +1177,14 @@ function buildOrderItemHTML(o, displayStatus) {
     driverBadge = '<span style="font-size:11px;color:#EF4444;font-weight:600">Unassigned</span>';
   }
 
-  var html = '<div class="order-item ' + cls + '">' +
+  // Amount missing warning (blink) — not Credit, not completed
+  var hasBill = o.billAmount && parseFloat(o.billAmount) > 0;
+  var amtWarn = '';
+  if(isEditable && o.payment !== 'Credit' && !hasBill) {
+    amtWarn = ' <span class="amt-missing" onclick="focusInlineAmt(\'' + o.orderId + '\')">⚠ Enter Amount!</span>';
+  }
+
+  var html = '<div class="order-item ' + cls + '" id="oi-' + o.orderId + '">' +
     '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">' +
       '<span style="font-size:14px;font-weight:600">' + o.businessName + '</span>' +
       (o.invoiceNum ? '<span style="font-size:12px;font-weight:600;color:#059669;background:#D1FAE5;padding:1px 7px;border-radius:4px">' + o.invoiceNum + '</span>' : '') +
@@ -1164,15 +1192,34 @@ function buildOrderItemHTML(o, displayStatus) {
       (isBiz ? '<span class="biz-tag">Business</span>' : '<span class="personal-tag">Personal</span>') +
       payBadge(o.payment || 'Cash') +
       driverBadge +
+      amtWarn +
     '</div>' +
     '<div style="display:flex;gap:10px;font-size:12px;color:#64748B;flex-wrap:wrap">' +
-      (o.billAmount ? '<span>Bill: P' + o.billAmount + '</span>' : '') +
+      (hasBill ? '<span>Bill: P' + o.billAmount + '</span>' : '<span style="color:#94A3B8">No amount yet</span>') +
       (o.change && o.payment === 'Cash' ? '<span style="color:#059669;font-weight:600">Change: P' + o.change + '</span>' : '') +
       (o.completeTime ? '<span>Done: ' + o.completeTime + '</span>' : '') +
     '</div>' +
     (o.notes ? '<div style="background:#FEF3C7;border-radius:5px;padding:5px 8px;font-size:12px;color:#92400E;margin-top:6px;font-weight:500">' + o.notes + '</div>' : '');
 
-  if(displayStatus !== 'COMPLETED') {
+  // Inline edit block for non-completed orders
+  if(isEditable) {
+    var curPay = o.payment || 'Cash';
+    var payOptsHtml = PAYMENTS.map(function(p) {
+      return '<div class="pay-opt-inline' + (curPay === p ? ' sel' : '') + '" onclick="setInlinePay(\'' + o.orderId + '\',\'' + p + '\')">' + p + '</div>';
+    }).join('');
+
+    html += '<div class="inline-edit" id="ie-' + o.orderId + '">' +
+      '<div style="font-size:11px;font-weight:700;color:#64748B;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em">Edit Amount & Payment</div>' +
+      '<div class="row2">' +
+        '<div><label>Bill Amount (P)</label><input type="number" id="ie-bill-' + o.orderId + '" value="' + (o.billAmount||'') + '" placeholder="Enter amount" inputmode="numeric" oninput="calcInlineChange(\'' + o.orderId + '\')"></div>' +
+        '<div><label>Given Amount (P)</label><input type="number" id="ie-given-' + o.orderId + '" placeholder="auto" inputmode="numeric" oninput="calcInlineChange(\'' + o.orderId + '\')"></div>' +
+      '</div>' +
+      '<div style="margin-bottom:6px"><label>Change (P)</label><input type="number" id="ie-change-' + o.orderId + '" value="' + (o.change||'') + '" placeholder="auto" readonly style="background:#F0FDF4;font-weight:600;color:#065F46"></div>' +
+      '<div style="margin-bottom:8px"><label>Payment Method</label><div class="pay-opts-inline" id="ie-pay-' + o.orderId + '">' + payOptsHtml + '</div></div>' +
+      '<button class="btn-save-inline" onclick="saveInlineEdit(\'' + o.orderId + '\',' + o.rowNum + ')">💾 Save</button>' +
+    '</div>';
+
+    // Reassign + delete row
     html += '<div style="display:flex;gap:6px;margin-top:8px;align-items:center">' +
       '<select id="ra-' + o.rowNum + '" style="flex:1;padding:6px 8px;font-size:12px;border:1px solid #D1D5DB;border-radius:5px">' +
         '<option value="">Reassign...</option>' +
@@ -1185,6 +1232,64 @@ function buildOrderItemHTML(o, displayStatus) {
 
   html += '</div>';
   return html;
+}
+
+// ======================================================
+// INLINE EDIT HELPERS
+// ======================================================
+function focusInlineAmt(orderId) {
+  var el = document.getElementById('ie-bill-' + orderId);
+  if(el) { el.focus(); el.scrollIntoView({ behavior:'smooth', block:'center' }); }
+}
+
+function setInlinePay(orderId, p) {
+  inlinePayment[orderId] = p;
+  document.querySelectorAll('#ie-pay-' + orderId + ' .pay-opt-inline').forEach(function(el) {
+    el.classList.toggle('sel', el.textContent === p);
+  });
+  calcInlineChange(orderId);
+}
+
+function calcInlineChange(orderId) {
+  var billEl  = document.getElementById('ie-bill-' + orderId);
+  var givenEl = document.getElementById('ie-given-' + orderId);
+  var chgEl   = document.getElementById('ie-change-' + orderId);
+  if(!billEl || !chgEl) return;
+  var pay = inlinePayment[orderId] || 'Cash';
+  var bill  = parseFloat(billEl.value)  || 0;
+  var given = parseFloat(givenEl ? givenEl.value : '') || 0;
+  if(pay !== 'Cash' || bill <= 0) { chgEl.value = ''; chgEl.style.background = '#F9FAFB'; return; }
+  chgEl.style.background = '#F0FDF4';
+  var base = given >= bill ? given : roundUpK(bill);
+  chgEl.value = Math.round(base - bill);
+}
+
+async function saveInlineEdit(orderId, rowNum) {
+  var billEl   = document.getElementById('ie-bill-' + orderId);
+  var chgEl    = document.getElementById('ie-change-' + orderId);
+  if(!billEl) return;
+  var bill = billEl.value.trim();
+  var chg  = chgEl ? chgEl.value.trim() : '';
+  var pay  = inlinePayment[orderId] || 'Cash';
+
+  var btn = document.querySelector('#ie-' + orderId + ' .btn-save-inline');
+  if(btn) { btn.textContent = 'Saving...'; btn.disabled = true; }
+
+  try {
+    var r = await apiPost('updateOrderAmount', { orderId: orderId, billAmount: bill, change: chg, payment: pay });
+    if(btn) { btn.textContent = '💾 Save'; btn.disabled = false; }
+    if(r && r.success) {
+      toast('toast-ord', 'Updated!', true);
+      // update local state
+      var idx = allOrders.findIndex ? allOrders.findIndex(function(o) { return o.orderId === orderId; }) :
+        (function() { for(var i=0;i<allOrders.length;i++) { if(allOrders[i].orderId===orderId) return i; } return -1; })();
+      if(idx > -1) { allOrders[idx].billAmount = bill; allOrders[idx].change = chg; allOrders[idx].payment = pay; }
+      renderOrders();
+    } else { toast('toast-ord', 'Save failed', false); }
+  } catch(e) {
+    if(btn) { btn.textContent = '💾 Save'; btn.disabled = false; }
+    toast('toast-ord', 'Error: ' + e.message, false);
+  }
 }
 
 async function saveAllAssignments() {
@@ -1227,7 +1332,9 @@ async function delOrder(orderId) {
   if(r && r.success) { toast('toast-ord', 'Deleted', true); loadOrders(); }
 }
 
-// ---- DRIVER FLOW ----
+// ======================================================
+// DRIVER FLOW (unchanged from original)
+// ======================================================
 function drvReset() {
   curDriver = null; activeDelId = null;
   document.getElementById('drv-name').value = '';
@@ -1469,7 +1576,6 @@ async function startDel(orderId) {
 }
 
 async function completeDel(orderId) {
-  // Show loading overlay
   var loadOverlay = document.createElement('div');
   loadOverlay.id = 'load-overlay';
   loadOverlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center';
@@ -1557,7 +1663,9 @@ async function drvArrive() {
   } catch(e) { btn.textContent = 'Complete Run'; btn.disabled = false; toast('drv-toast', 'Error: ' + e.message, false); }
 }
 
-// ---- LIVE STATUS ----
+// ======================================================
+// LIVE STATUS
+// ======================================================
 function switchTab(t) {
   var tabs = ['orders','live','vehicles','attendance','checklist','fuel'];
   document.querySelectorAll('.nav-btn').forEach(function(b, i) { b.classList.toggle('active', tabs[i] === t); });
@@ -1570,10 +1678,72 @@ function switchTab(t) {
   else if(t === 'fuel') loadFuel();
 }
 
+// ======================================================
+// HELPER: convert "HH:MM" to total minutes
+// ======================================================
+function toMins(timeStr) {
+  if(!timeStr) return -1;
+  var parts = String(timeStr).split(':');
+  if(parts.length < 2) return -1;
+  var h = parseInt(parts[0]); var m = parseInt(parts[1]);
+  if(isNaN(h) || isNaN(m)) return -1;
+  return h * 60 + m;
+}
+
+// ======================================================
+// DRIVER STATUS LOGIC (used by both loadLive and loadAttendance)
+// Returns { color, text, sub }
+// ======================================================
+function getDriverStatus(driver, activeRuns, isToday, nowMins) {
+  var sc = getDriverSched(driver);
+  var actualCO = isToday ? (actualClockouts[driver] || null) : null;
+  var actualB  = isToday ? (actualBreaks[driver]    || null) : null;
+
+  var ciMins  = toMins(sc.clockin);
+  var coMins  = toMins(actualCO || sc.clockout);
+  var bsMins  = toMins(actualB  || sc.breakStart);
+
+  // Check if on road
+  var activeRun = activeRuns.find(function(r) { return r.driver === driver; });
+  var asCoDriver = activeRuns.find(function(r) { return r.coDriver === driver; });
+  var onRoad = !!(activeRun || asCoDriver);
+
+  if(onRoad) {
+    if(asCoDriver && !activeRun) return { color:'#7C3AED', text:'🚗 Co-Driver', sub: (asCoDriver.destination||'') + ' (w/ ' + asCoDriver.driver + ')' };
+    return { color:'#1D4ED8', text:'🚚 On Road', sub: (activeRun.destination||'Delivering') };
+  }
+
+  if(!isToday) {
+    return { color:'#64748B', text:'📅 Past', sub:'' };
+  }
+
+  // Not yet clocked in
+  if(ciMins > -1 && nowMins < ciMins) {
+    return { color:'#94A3B8', text:'⏰ Not Started', sub:'Clock in: ' + (sc.clockin||'–') };
+  }
+
+  // Clocked out
+  if(coMins > -1 && nowMins >= coMins) {
+    return { color:'#374151', text:'🔴 Clocked Out', sub:'Out: ' + (actualCO || sc.clockout) };
+  }
+
+  // On break (1 hour window)
+  if(bsMins > -1 && nowMins >= bsMins && nowMins < bsMins + 60) {
+    return { color:'#F59E0B', text:'☕ On Break', sub:'Break: ' + (actualB || sc.breakStart) };
+  }
+
+  // Within work hours → Available
+  if(ciMins > -1 && nowMins >= ciMins) {
+    return { color:'#059669', text:'✓ Available', sub:'Since ' + (sc.clockin||'–') };
+  }
+
+  return { color:'#059669', text:'✓ Available', sub:'' };
+}
+
 async function loadLive() {
   var liveEl = document.getElementById('live-list');
   var refreshBtn = document.querySelector('#tab-live .btn-sm-off');
-  if(liveEl.innerHTML === '<div class="empty">Loading...</div>' || !liveEl.innerHTML) {
+  if(!liveEl.innerHTML || liveEl.innerHTML === '<div class="empty">Loading...</div>') {
     liveEl.innerHTML = '<div class="empty" style="padding:32px"><div style="font-size:28px;animation:spin 1s linear infinite;display:inline-block">⟳</div><div style="margin-top:8px;font-size:13px;color:#64748B">Loading live status...</div></div>';
   }
   if(refreshBtn) { refreshBtn.textContent = '...'; refreshBtn.disabled = true; }
@@ -1582,7 +1752,6 @@ async function loadLive() {
     var runs   = (data && data.runs)   || [];
     var orders = (data && data.orders) || [];
 
-    // Update global on-the-way tracker
     _onTheWayIds = {};
     runs.filter(function(r) { return r.status === 'IN PROGRESS'; }).forEach(function(r) {
       if(r.orderIds) r.orderIds.forEach(function(id) { _onTheWayIds[id] = r.driver; });
@@ -1600,7 +1769,6 @@ async function loadLive() {
     var html = '';
     var active = runs.filter(function(r) { return r.status === 'IN PROGRESS'; });
 
-    // ── ACTIVE RUNS ──
     if(active.length) {
       html += '<div class="section-label">On the road (' + active.length + ')</div>';
       active.forEach(function(r) {
@@ -1626,7 +1794,6 @@ async function loadLive() {
       });
     }
 
-    // ── COMPLETED RUNS ──
     var comp = runs.filter(function(r) { return r.status === 'COMPLETED'; });
     if(comp.length) {
       html += '<div class="section-label">Completed Runs</div>';
@@ -1639,7 +1806,6 @@ async function loadLive() {
       });
     }
 
-    // ── PENDING ORDERS (all, simple list) ──
     var pend = orders.filter(function(o) { return o.status === 'PENDING'; });
     if(pend.length) {
       html += '<div class="section-label" style="color:#D97706">⏳ PENDING ORDERS (' + pend.length + ')</div>';
@@ -1656,58 +1822,42 @@ async function loadLive() {
       });
     }
 
-    // ── VEHICLE STATUS ──
+    // Vehicle Status
     html += '<div class="section-label" style="margin-top:16px">Fleet Status</div>';
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;margin-bottom:8px">';
     var vehList = await apiGet('getVehicleStatus');
     (vehList || []).forEach(function(v) {
-      var activeRun = active.find(function(r) {
+      var activeRun2 = active.find(function(r) {
         var rv = (r.vehicle||'').trim().toLowerCase();
         var rp = (r.plate||'').trim().toLowerCase();
         var vv = (v.vehicle||'').trim().toLowerCase();
         var vp = (v.plate||'').trim().toLowerCase();
         return rv === vv || (vp && rp && rp === vp);
       });
-      var onRoad = !!activeRun;
-      var statusColor = onRoad ? '#1D4ED8' : v.status === 'Active' ? '#059669' : '#DC2626';
-      var statusText  = onRoad ? '🚚 On Road' : v.status === 'Active' ? '✓ Available' : '⚠ ' + v.status;
+      var onRoad2 = !!activeRun2;
+      var statusColor = onRoad2 ? '#1D4ED8' : v.status === 'Active' ? '#059669' : '#DC2626';
+      var statusText  = onRoad2 ? '🚚 On Road' : v.status === 'Active' ? '✓ Available' : '⚠ ' + v.status;
       html += '<div style="background:#fff;border:2px solid ' + statusColor + ';border-radius:8px;padding:10px 12px">' +
         '<div style="font-size:13px;font-weight:700;color:#111">' + v.vehicle + '</div>' +
         '<div style="font-size:11px;color:#64748B">' + v.plate + '</div>' +
         '<div style="font-size:12px;font-weight:700;color:' + statusColor + ';margin-top:4px">' + statusText + '</div>' +
-        (onRoad ? '<div style="font-size:12px;color:#1D4ED8;margin-top:3px">👤 ' + activeRun.driver + '</div>' : '') +
-        (onRoad && activeRun.destination ? '<div style="font-size:11px;color:#64748B;margin-top:2px">📍 ' + activeRun.destination + '</div>' : '') +
-        (onRoad ? '<div style="font-size:11px;color:#64748B;margin-top:2px">🕐 Dep: ' + fmtTime(activeRun.depTime) + '</div>' : '') +
+        (onRoad2 ? '<div style="font-size:12px;color:#1D4ED8;margin-top:3px">👤 ' + activeRun2.driver + '</div>' : '') +
+        (onRoad2 && activeRun2.destination ? '<div style="font-size:11px;color:#64748B;margin-top:2px">📍 ' + activeRun2.destination + '</div>' : '') +
+        (onRoad2 ? '<div style="font-size:11px;color:#64748B;margin-top:2px">🕐 Dep: ' + fmtTime(activeRun2.depTime) + '</div>' : '') +
       '</div>';
     });
     html += '</div>';
 
-    // ── DRIVER STATUS ──
+    // ── DRIVER STATUS — now uses getDriverStatus() which respects clockin/clockout ──
     html += '<div class="section-label">Driver Status Today</div>';
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px">';
-    var activeDrivers = active.map(function(r) { return r.driver; });
     var nowMins = new Date().getHours()*60 + new Date().getMinutes();
     DRIVERS.forEach(function(d) {
-      var onRoad = activeDrivers.indexOf(d) > -1;
-      var sched = (typeof getDriverSched === 'function') ? getDriverSched(d) : { breakStart:'12:00' };
-      var actualB = actualBreaks[d] || null;
-      var bStart = actualB || sched.breakStart;
-      var bsMins = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
-      var onBreak = !onRoad && bsMins > -1 && nowMins >= bsMins && nowMins < bsMins + 60;
-      var statusColor = onRoad ? '#1D4ED8' : onBreak ? '#F59E0B' : '#059669';
-      var statusText  = onRoad ? '🚚 On Road' : onBreak ? '☕ On Break' : '✓ Available';
-      var activeRun   = onRoad ? active.find(function(r) { return r.driver === d; }) : null;
-      var asCoDriver = active.find(function(r) { return r.coDriver === d; });
-      if(!onRoad && asCoDriver) {
-        onRoad = true; statusColor = '#7C3AED'; statusText = '🚗 Co-Driver';
-      }
-      html += '<div style="background:' + statusColor + ';border-radius:8px;padding:10px 12px">' +
+      var st = getDriverStatus(d, active, true, nowMins);
+      html += '<div style="background:' + st.color + ';border-radius:8px;padding:10px 12px">' +
         '<div style="font-size:13px;font-weight:700;color:#fff">' + d + '</div>' +
-        '<div style="font-size:12px;color:#fff;opacity:0.9;margin-top:3px">' + statusText + '</div>' +
-        (onRoad && activeRun ? '<div style="font-size:10px;color:#fff;opacity:0.8;margin-top:2px">📍 ' + (activeRun.destination || 'Delivering') + '</div>' : '') +
-        (onRoad && activeRun && activeRun.coDriver ? '<div style="font-size:10px;color:#fff;opacity:0.8;margin-top:2px">👥 w/ ' + activeRun.coDriver + '</div>' : '') +
-        (onRoad && asCoDriver ? '<div style="font-size:10px;color:#fff;opacity:0.8;margin-top:2px">📍 ' + (asCoDriver.destination||'') + ' (w/ ' + asCoDriver.driver + ')</div>' : '') +
-        (onBreak ? '<div style="font-size:10px;color:#fff;opacity:0.8;margin-top:2px">Break: ' + (bStart||'') + '</div>' : '') +
+        '<div style="font-size:12px;color:#fff;opacity:0.9;margin-top:3px">' + st.text + '</div>' +
+        (st.sub ? '<div style="font-size:10px;color:#fff;opacity:0.8;margin-top:2px">' + st.sub + '</div>' : '') +
       '</div>';
     });
     html += '</div>';
@@ -1717,7 +1867,9 @@ async function loadLive() {
   if(refreshBtn) { refreshBtn.textContent = 'Refresh'; refreshBtn.disabled = false; }
 }
 
-// ---- VEHICLES ----
+// ======================================================
+// VEHICLES
+// ======================================================
 async function loadVehicles() {
   document.getElementById('veh-list').innerHTML = '<div class="empty">Loading...</div>';
   try {
@@ -1749,7 +1901,9 @@ async function updVeh(sel) {
   if(r && r.success) toast('toast-veh', 'Updated!', true);
 }
 
-// ---- CHECKLIST ----
+// ======================================================
+// CHECKLIST
+// ======================================================
 function buildChecklist() {
   var el = document.getElementById('chk-items');
   if(!el || el.children.length > 0) return;
@@ -1780,7 +1934,9 @@ async function submitChecklist() {
   if(r&&r.success){toast('toast-chk','Submitted!',true);CHECKLIST_KEYS.forEach(function(k){setCheck(k,'OK');});}
 }
 
-// ---- FUEL ----
+// ======================================================
+// FUEL
+// ======================================================
 async function addFuel() {
   var v=document.getElementById('fuel-veh').value;
   var l=document.getElementById('fuel-l').value;
@@ -1804,7 +1960,9 @@ async function loadFuel() {
   } catch(e){document.getElementById('fuel-list').innerHTML='<div class="empty">Error</div>';}
 }
 
-// ---- EXPORT ----
+// ======================================================
+// EXPORT
+// ======================================================
 async function exportCSV() {
   var btn=document.querySelector('.btn-export');
   btn.textContent='...';btn.disabled=true;
@@ -1819,7 +1977,9 @@ async function exportCSV() {
   } catch(e){btn.textContent='Export';btn.disabled=false;}
 }
 
-// ---- ADMIN ----
+// ======================================================
+// ADMIN
+// ======================================================
 function checkPin() {
   var pin=document.getElementById('pin-input').value;
   if(pin==='1234'){
@@ -1925,7 +2085,9 @@ async function clearTodayData() {
   if(r&&r.success) toast('toast-admin','Cleared!',true);
 }
 
-// ---- REPORT ----
+// ======================================================
+// REPORT
+// ======================================================
 function setReportRange(range) {
   var now=new Date(); var today=now.toISOString().slice(0,10);
   var ds=document.getElementById('report-date-start'); var de=document.getElementById('report-date-end');
@@ -1953,8 +2115,6 @@ async function loadReport() {
 }
 
 function renderReport(data) {
-  var s = data.summary;
-  // Re-calculate from raw data to ensure correctness
   var compRuns   = (data.runs   || []).filter(function(r) { return r.status === 'COMPLETED'; });
   var compOrders = (data.orders || []).filter(function(o) { return o.status === 'COMPLETED'; });
   var totalKm    = compRuns.reduce(function(acc, r) { return acc + (parseFloat(r.distKm) || 0); }, 0);
@@ -1962,7 +2122,6 @@ function renderReport(data) {
   var totalFuelL = (data.fuels || []).reduce(function(acc, f) { return acc + (parseFloat(f.liters) || 0); }, 0);
   var totalFuelCost = (data.fuels || []).reduce(function(acc, f) { return acc + (parseFloat(f.amount) || 0); }, 0);
 
-  // Re-build payBreakdown
   var payBreakdown = {};
   compOrders.forEach(function(o) {
     var p = o.payment || 'Cash';
@@ -1972,14 +2131,12 @@ function renderReport(data) {
     if(p === 'Cash') payBreakdown[p].change += parseFloat(o.change) || 0;
   });
 
-  // Re-build driverMap from ALL runs (not just completed)
   var driverMap = {};
   (data.runs || []).forEach(function(r) {
     var d = r.driver;
     if(!d) return;
     if(!driverMap[d]) driverMap[d] = { runs:0, km:0, orders:0 };
-    driverMap[d].runs++;
-    driverMap[d].km += parseFloat(r.distKm) || 0;
+    driverMap[d].runs++; driverMap[d].km += parseFloat(r.distKm) || 0;
   });
   (data.orders || []).forEach(function(o) {
     if(!o.driver) return;
@@ -1987,13 +2144,11 @@ function renderReport(data) {
     if(o.status === 'COMPLETED') driverMap[o.driver].orders++;
   });
 
-  // Re-build vehicleMap
   var vehicleMap = {};
   (data.runs || []).forEach(function(r) {
     var key = (r.vehicle||'unknown') + (r.plate ? ' (' + r.plate + ')' : '');
     if(!vehicleMap[key]) vehicleMap[key] = { runs:0, km:0, fuelL:0, fuelCost:0 };
-    vehicleMap[key].runs++;
-    vehicleMap[key].km += parseFloat(r.distKm) || 0;
+    vehicleMap[key].runs++; vehicleMap[key].km += parseFloat(r.distKm) || 0;
   });
   (data.fuels || []).forEach(function(f) {
     var key = (f.vehicle||'unknown') + (f.plate ? ' (' + f.plate + ')' : '');
@@ -2008,8 +2163,6 @@ function renderReport(data) {
 
   var html = '<div id="print-area">';
   html += '<div class="report-section" style="text-align:center;background:#1F4E79;color:#fff"><div style="font-size:20px;font-weight:700">H mart</div><div style="font-size:14px;margin-top:4px;opacity:0.85">Daily Operations Report</div><div style="font-size:13px;margin-top:4px;opacity:0.75">' + dateDisp + '</div></div>';
-
-  // Summary
   html += '<div class="report-section"><div class="report-title">Summary</div><div class="report-grid">' +
     '<div class="report-stat"><div class="report-stat-num">' + compRuns.length + '/' + (data.runs||[]).length + '</div><div class="report-stat-lbl">Runs Completed</div></div>' +
     '<div class="report-stat"><div class="report-stat-num">' + (Math.round(totalKm*10)/10) + ' km</div><div class="report-stat-lbl">Total Distance</div></div>' +
@@ -2017,7 +2170,6 @@ function renderReport(data) {
     '<div class="report-stat"><div class="report-stat-num">P' + Math.round(totalBill).toLocaleString() + '</div><div class="report-stat-lbl">Revenue</div></div>' +
   '</div></div>';
 
-  // Payment Breakdown
   if(Object.keys(payBreakdown).length) {
     html += '<div class="report-section"><div class="report-title">Payment Breakdown</div><div style="overflow-x:auto"><table class="report-table" style="min-width:400px"><thead><tr><th>Method</th><th>Orders</th><th>Amount</th><th>Change</th></tr></thead><tbody>';
     Object.keys(payBreakdown).forEach(function(p) {
@@ -2027,7 +2179,6 @@ function renderReport(data) {
     html += '</tbody></table></div></div>';
   }
 
-  // Driver Summary
   if(Object.keys(driverMap).length) {
     html += '<div class="report-section"><div class="report-title">Driver Summary</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>Driver</th><th>Runs</th><th>Distance</th><th>Orders Done</th></tr></thead><tbody>';
     Object.keys(driverMap).forEach(function(d) {
@@ -2037,7 +2188,6 @@ function renderReport(data) {
     html += '</tbody></table></div></div>';
   }
 
-  // Vehicle Summary
   if(Object.keys(vehicleMap).length) {
     html += '<div class="report-section"><div class="report-title">Vehicle Summary</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>Vehicle</th><th>Runs</th><th>Distance</th><th>Fuel (L)</th><th>Fuel Cost</th><th>km/L</th></tr></thead><tbody>';
     Object.keys(vehicleMap).forEach(function(v) {
@@ -2048,7 +2198,6 @@ function renderReport(data) {
     html += '</tbody></table></div></div>';
   }
 
-  // Fuel Log
   if((data.fuels||[]).length) {
     html += '<div class="report-section"><div class="report-title">Fuel Log</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>Vehicle</th><th>Driver</th><th>Liters</th><th>Amount</th><th>Odometer</th><th>Station</th></tr></thead><tbody>';
     data.fuels.forEach(function(f) {
@@ -2058,7 +2207,6 @@ function renderReport(data) {
     html += '</tbody></table></div></div>';
   }
 
-  // Checklist
   if((data.checklists||[]).length) {
     html += '<div class="report-section"><div class="report-title">Checklist</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>Driver</th><th>Vehicle</th><th>Shift</th><th>Battery</th><th>Lights</th><th>Oil</th><th>Water</th><th>Brakes</th><th>Tires</th><th>Remarks</th></tr></thead><tbody>';
     data.checklists.forEach(function(c) {
@@ -2068,7 +2216,6 @@ function renderReport(data) {
     html += '</tbody></table></div></div>';
   }
 
-  // Delivery Details
   if((data.orders||[]).length) {
     html += '<div class="report-section"><div class="report-title">Delivery Details</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>#</th><th>Business</th><th>Invoice</th><th>Driver</th><th>Payment</th><th>Amount</th><th>Change</th><th>Status</th><th>Time</th></tr></thead><tbody>';
     data.orders.forEach(function(o, idx) {
@@ -2084,7 +2231,9 @@ function renderReport(data) {
 
 function printReport(){window.print();}
 
-// ---- ATTENDANCE ----
+// ======================================================
+// ATTENDANCE — FIXED: clockin/clockout now applied to status
+// ======================================================
 var driverSchedules = {};
 var actualBreaks = {};
 var actualClockouts = {};
@@ -2105,7 +2254,7 @@ var overtimeBalance = {};
 })();
 
 function getDriverSched(driver) {
-  return driverSchedules[driver] || { clockin:'08:00', breakStart:'12:00', clockout:'17:00', notes:'' };
+  return driverSchedules[driver] || { clockin:'', breakStart:'', clockout:'', notes:'' };
 }
 
 function buildAttDriverTable() {
@@ -2145,7 +2294,12 @@ function saveAllOverrides() {
     var co = document.getElementById('sc-co-' + d);
     var nt = document.getElementById('sc-nt-' + d);
     if(!ci) return;
-    driverSchedules[d] = { clockin: ci.value||'', breakStart: bs?bs.value||'':'', clockout: co?co.value||'':'', notes: nt?nt.value||'':'' };
+    driverSchedules[d] = {
+      clockin:    ci.value    || '',
+      breakStart: bs ? bs.value || '' : '',
+      clockout:   co ? co.value || '' : '',
+      notes:      nt ? nt.value || '' : ''
+    };
     changed++;
   });
   try { localStorage.setItem('hmart_driver_schedules', JSON.stringify(driverSchedules)); } catch(e) {}
@@ -2160,6 +2314,7 @@ function saveActualTimes() {
   if(!driver) { toast('toast-att', 'Select a driver', false); return; }
   if(!breakT && !clockout) { toast('toast-att', 'Enter at least one time', false); return; }
   var attDate = document.getElementById('att-date') ? document.getElementById('att-date').value : new Date().toISOString().slice(0,10);
+  if(!attDate) attDate = new Date().toISOString().slice(0,10);
   if(breakT) {
     actualBreaks[driver] = breakT;
     try { localStorage.setItem('hmart_actual_breaks_' + attDate, JSON.stringify(actualBreaks)); } catch(e) {}
@@ -2169,12 +2324,14 @@ function saveActualTimes() {
     try { localStorage.setItem('hmart_actual_clockouts_' + attDate, JSON.stringify(actualClockouts)); } catch(e) {}
     var sched = getDriverSched(driver);
     if(sched.clockout) {
-      var schedMins = parseInt(sched.clockout.split(':')[0])*60 + parseInt(sched.clockout.split(':')[1]);
-      var actMins   = parseInt(clockout.split(':')[0])*60 + parseInt(clockout.split(':')[1]);
-      var diff = actMins - schedMins;
-      if(!overtimeBalance[driver]) overtimeBalance[driver] = 0;
-      overtimeBalance[driver] += diff;
-      try { localStorage.setItem('hmart_overtime_balance', JSON.stringify(overtimeBalance)); } catch(e) {}
+      var schedMins = toMins(sched.clockout);
+      var actMins   = toMins(clockout);
+      if(schedMins > -1 && actMins > -1) {
+        var diff = actMins - schedMins;
+        if(!overtimeBalance[driver]) overtimeBalance[driver] = 0;
+        overtimeBalance[driver] += diff;
+        try { localStorage.setItem('hmart_overtime_balance', JSON.stringify(overtimeBalance)); } catch(e) {}
+      }
     }
   }
   var msg = driver + ' updated';
@@ -2230,6 +2387,7 @@ function calcHours(start, end) {
   } catch(e) { return '-'; }
 }
 
+// ── loadAttendance — FIXED to use clockin/clockout for status ──
 function loadAttendance() {
   buildAttDriverTable();
   var dateEl = document.getElementById('att-date');
@@ -2252,31 +2410,37 @@ function loadAttendance() {
 
   var html = DRIVERS.map(function(d) {
     var sc = getDriverSched(d);
-    var actualB = actualBreaks[d] || null;
+    var actualB  = actualBreaks[d]    || null;
     var actualCO = actualClockouts[d] || null;
-    var bStart = actualB || sc.breakStart;
-    var bMins = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
 
-    // Status only meaningful for today
-    var onBreak = isToday && bMins > -1 && nowMins >= bMins && nowMins < bMins + 60;
-    var schedBMins = sc.breakStart ? parseInt(sc.breakStart.split(':')[0])*60+parseInt(sc.breakStart.split(':')[1]) : -1;
-    var breakOverdue = isToday && !actualB && schedBMins > -1 && nowMins > schedBMins + 30;
-    var clocked_out = isToday && actualCO && (function() {
-      var coMins = parseInt(actualCO.split(':')[0])*60+parseInt(actualCO.split(':')[1]);
-      return nowMins >= coMins;
-    })();
+    // Times in minutes
+    var ciMins  = toMins(sc.clockin);
+    var coMins  = toMins(actualCO || sc.clockout);
+    var bsMins  = toMins(actualB  || sc.breakStart);
 
-    var statusColor, statusText;
+    var statusColor, statusText, statusSub;
+
     if(!isToday) {
-      // Past date — just show recorded times
-      statusColor = '#64748B'; statusText = '📅 ' + selDate;
-    } else if(clocked_out) {
-      statusColor = '#374151'; statusText = '🔴 Clocked Out';
-    } else if(onBreak) {
-      statusColor = '#F59E0B'; statusText = '☕ On Break';
+      statusColor = '#64748B'; statusText = '📅 ' + selDate; statusSub = '';
+    } else if(ciMins > -1 && nowMins < ciMins) {
+      // Before clock-in time
+      statusColor = '#94A3B8'; statusText = '⏰ Not Started'; statusSub = 'Clock in: ' + sc.clockin;
+    } else if(coMins > -1 && nowMins >= coMins) {
+      // After clock-out time
+      statusColor = '#374151'; statusText = '🔴 Clocked Out'; statusSub = 'Out: ' + (actualCO || sc.clockout);
+    } else if(bsMins > -1 && nowMins >= bsMins && nowMins < bsMins + 60) {
+      // On break
+      statusColor = '#F59E0B'; statusText = '☕ On Break'; statusSub = 'Break: ' + (actualB || sc.breakStart);
+    } else if(ciMins > -1 && nowMins >= ciMins) {
+      // Within work hours
+      statusColor = '#059669'; statusText = '✓ Available'; statusSub = 'Since ' + sc.clockin;
     } else {
-      statusColor = '#059669'; statusText = '✓ Available';
+      // No schedule set yet — neutral
+      statusColor = '#94A3B8'; statusText = '— No Schedule'; statusSub = 'Set schedule above';
     }
+
+    var breakOverdue = isToday && !actualB && sc.breakStart &&
+      toMins(sc.breakStart) > -1 && nowMins > toMins(sc.breakStart) + 30;
 
     return '<div style="background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:12px;margin-bottom:8px;border-left:4px solid ' + statusColor + '">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">' +
@@ -2284,16 +2448,18 @@ function loadAttendance() {
         '<span style="background:' + statusColor + ';color:#fff;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px">' + statusText + '</span>' +
       '</div>' +
       '<div style="display:flex;gap:12px;font-size:12px;color:#374151;flex-wrap:wrap">' +
-        (sc.clockin  ? '<span>🟢 In: <strong>' + sc.clockin + '</strong></span>' : '') +
-        (bStart ? '<span>' + (actualB ? '☕ Actual Break: ' : '☕ Sched Break: ') + '<strong>' + bStart + '</strong></span>' : '<span style="color:#94A3B8">No break set</span>') +
-        (sc.clockout ? '<span>🔴 Sched Out: <strong>' + sc.clockout + '</strong></span>' : '') +
+        (sc.clockin  ? '<span>🟢 In: <strong>' + sc.clockin + '</strong></span>' : '<span style="color:#94A3B8">No clock-in set</span>') +
+        (sc.breakStart ? '<span>' + (actualB ? '☕ Actual Break: ' : '☕ Sched Break: ') + '<strong>' + (actualB || sc.breakStart) + '</strong></span>' : '<span style="color:#94A3B8">No break set</span>') +
+        (sc.clockout ? '<span>🔴 Sched Out: <strong>' + sc.clockout + '</strong></span>' : '<span style="color:#94A3B8">No clock-out set</span>') +
         (actualCO ? '<span style="color:#DC2626;font-weight:700">Actual Out: ' + actualCO + '</span>' : '') +
         (sc.clockin && sc.clockout ? '<span style="color:#1F4E79;font-weight:600">Est: ' + calcHours(sc.clockin, sc.clockout) + '</span>' : '') +
       '</div>' +
+      (statusSub ? '<div style="font-size:11px;color:#64748B;margin-top:4px">' + statusSub + '</div>' : '') +
       (breakOverdue ? '<div style="background:#FEE2E2;border-radius:5px;padding:5px 8px;font-size:11px;color:#DC2626;font-weight:600;margin-top:6px">⚠ Break time passed — actual break not yet recorded</div>' : '') +
       (sc.notes ? '<div style="font-size:11px;color:#92400E;background:#FEF3C7;padding:4px 8px;border-radius:4px;margin-top:6px">' + sc.notes + '</div>' : '') +
     '</div>';
   }).join('');
+
   document.getElementById('att-list').innerHTML = html;
 }
 
@@ -2327,7 +2493,9 @@ setInterval(function(){
 addFastRow();
 loadOrders();
 
-// ---- SPECIAL RUN ----
+// ======================================================
+// SPECIAL RUN
+// ======================================================
 var selectedSpecialType = '';
 var specialRunActive = false;
 
@@ -2429,13 +2597,10 @@ async function specialArrive() {
 </script>
 
 <script>
-// ---- PWA SERVICE WORKER REGISTRATION ----
 if('serviceWorker' in navigator) {
   window.addEventListener('load', function() {
     navigator.serviceWorker.register('/hmart-delivery/sw.js')
       .then(function(reg) {
-        console.log('[PWA] Service Worker registered:', reg.scope);
-        // Check for updates
         reg.addEventListener('updatefound', function() {
           var newWorker = reg.installing;
           newWorker.addEventListener('statechange', function() {
@@ -2444,19 +2609,14 @@ if('serviceWorker' in navigator) {
             }
           });
         });
-      })
-      .catch(function(err) {
-        console.log('[PWA] Service Worker registration failed:', err);
-      });
+      }).catch(function(err) {});
   });
 }
 
-// PWA install prompt
 var deferredPrompt;
 window.addEventListener('beforeinstallprompt', function(e) {
   e.preventDefault();
   deferredPrompt = e;
-  // Show install button after a delay
   setTimeout(function() {
     var installBar = document.getElementById('install-bar');
     if(installBar) installBar.style.display = 'flex';
@@ -2479,6 +2639,5 @@ function installApp() {
   });
 }
 </script>
-
 </body>
 </html>
