@@ -6,7 +6,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<title>H mart</title>
+<title>H mart DEV</title>
+<link rel="manifest" href="/hmart-delivery/manifest.json">
+<meta name="theme-color" content="#1F4E79">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F0F4F8;min-height:100vh;-webkit-text-size-adjust:100%}
@@ -200,7 +202,7 @@ html{width:100%;overflow-x:hidden}
 
 <!-- API URL -->
 <script>
-var API_URL = 'https://script.google.com/macros/s/AKfycbxiuxPf6fuLuRiu3C-heEjhjzfaEkBW49MiQWm3omsUDT0hFEgAIpYOnYxdtIr0lTbCHg/exec';
+var API_URL = 'https://script.google.com/macros/s/AKfycbwdWEjLtNcEW1Z-_bj1q5hzTid5FK0eG8El7tbBlauIw0g5Di1nOhrxU_z6Oe1ZKy1h/exec';
 
 // ============================================================
 // OFFLINE QUEUE + CACHE SYSTEM
@@ -376,6 +378,18 @@ function showNetworkStatus(msg, color) {
 
 <!-- Network status bar -->
 <div id="network-status" style="display:none;position:fixed;top:0;left:0;right:0;background:#F59E0B;color:#fff;text-align:center;padding:8px;font-size:13px;font-weight:600;z-index:9999"></div>
+
+<!-- PWA Install Banner -->
+<div id="install-bar" style="display:none;position:fixed;bottom:0;left:0;right:0;background:#1F4E79;color:#fff;padding:12px 16px;z-index:9998;align-items:center;justify-content:space-between;gap:12px">
+  <div>
+    <div style="font-size:13px;font-weight:700">📱 홈 화면에 추가하기</div>
+    <div style="font-size:11px;opacity:0.8;margin-top:2px">오프라인에서도 사용 가능</div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <button onclick="document.getElementById('install-bar').style.display='none'" style="padding:8px 14px;font-size:12px;background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:6px;cursor:pointer">나중에</button>
+    <button onclick="installApp()" style="padding:8px 14px;font-size:12px;font-weight:700;background:#fff;color:#1F4E79;border:none;border-radius:6px;cursor:pointer">설치</button>
+  </div>
+</div>
 
 <!-- MODE SELECT -->
 <div id="mode-select">
@@ -1055,8 +1069,12 @@ async function saveAllOrders() {
 
 // ---- ORDERS LIST ----
 async function loadOrders() {
-  document.getElementById('orders-list').innerHTML = '<div class="empty">Loading...</div>';
+  var listEl = document.getElementById('orders-list');
+  var refreshBtn = document.querySelector('#tab-orders .btn-sm-off');
+  listEl.innerHTML = '<div class="empty" style="padding:32px"><div style="font-size:28px;animation:spin 1s linear infinite;display:inline-block">⟳</div><div style="margin-top:8px;font-size:13px;color:#64748B">Loading orders...</div></div>';
+  if(refreshBtn) { refreshBtn.textContent = '...'; refreshBtn.disabled = true; }
   try {
+    delete _cache['getOfficeData{}'];
     var officeData = await apiGet('getOfficeData');
     allOrders = (officeData && officeData.orders) || [];
     var runs = (officeData && officeData.runs) || [];
@@ -1065,7 +1083,8 @@ async function loadOrders() {
       if(r.orderIds) r.orderIds.forEach(function(id) { _onTheWayIds[id] = r.driver; });
     });
     renderOrders();
-  } catch(e) { document.getElementById('orders-list').innerHTML = '<div class="empty">Error loading</div>'; }
+  } catch(e) { listEl.innerHTML = '<div class="empty">Error loading</div>'; }
+  if(refreshBtn) { refreshBtn.textContent = 'Refresh'; refreshBtn.disabled = false; }
 }
 
 function renderOrders() {
@@ -1075,40 +1094,32 @@ function renderOrders() {
   if(!orders.length) { document.getElementById('orders-list').innerHTML = '<div class="empty">No orders yet today</div>'; return; }
   var html = '';
 
-  // COMPLETED group
-  var compGrp = orders.filter(function(o) { return o.status === 'COMPLETED'; });
-  if(compGrp.length) {
-    html += '<div class="section-label">COMPLETED (' + compGrp.length + ')</div>';
-    compGrp.forEach(function(o) {
-      html += buildOrderItemHTML(o, 'COMPLETED');
-    });
-  }
-
-  // IN PROGRESS group
-  var progGrp = orders.filter(function(o) { return o.status === 'IN PROGRESS'; });
-  if(progGrp.length) {
-    html += '<div class="section-label">IN PROGRESS (' + progGrp.length + ')</div>';
-    progGrp.forEach(function(o) {
-      html += buildOrderItemHTML(o, 'IN PROGRESS');
-    });
-  }
-
-  // ON THE WAY group — PENDING but driver already departed
-  var otwGrp = orders.filter(function(o) { return o.status === 'PENDING' && _onTheWayIds[o.orderId]; });
-  if(otwGrp.length) {
-    html += '<div class="section-label" style="color:#7C3AED">🚚 ON THE WAY (' + otwGrp.length + ')</div>';
-    otwGrp.forEach(function(o) {
-      html += buildOrderItemHTML(o, 'ON THE WAY');
-    });
-  }
-
-  // TRUE PENDING group — not yet departed
+  // 1. TRUE PENDING — not yet departed (driver hasn't left)
   var truePendGrp = orders.filter(function(o) { return o.status === 'PENDING' && !_onTheWayIds[o.orderId]; });
   if(truePendGrp.length) {
     html += '<div class="section-label" style="color:#D97706">⏳ WAITING TO DEPART (' + truePendGrp.length + ')</div>';
-    truePendGrp.forEach(function(o) {
-      html += buildOrderItemHTML(o, 'PENDING');
-    });
+    truePendGrp.forEach(function(o) { html += buildOrderItemHTML(o, 'PENDING'); });
+  }
+
+  // 2. IN PROGRESS — driver tapped "Start Delivery"
+  var progGrp = orders.filter(function(o) { return o.status === 'IN PROGRESS'; });
+  if(progGrp.length) {
+    html += '<div class="section-label">▶ IN PROGRESS (' + progGrp.length + ')</div>';
+    progGrp.forEach(function(o) { html += buildOrderItemHTML(o, 'IN PROGRESS'); });
+  }
+
+  // 3. ON THE WAY — PENDING but driver already departed with this order
+  var otwGrp = orders.filter(function(o) { return o.status === 'PENDING' && _onTheWayIds[o.orderId]; });
+  if(otwGrp.length) {
+    html += '<div class="section-label" style="color:#7C3AED">🚚 ON THE WAY (' + otwGrp.length + ')</div>';
+    otwGrp.forEach(function(o) { html += buildOrderItemHTML(o, 'ON THE WAY'); });
+  }
+
+  // 4. COMPLETED — last
+  var compGrp = orders.filter(function(o) { return o.status === 'COMPLETED'; });
+  if(compGrp.length) {
+    html += '<div class="section-label">✓ COMPLETED (' + compGrp.length + ')</div>';
+    compGrp.forEach(function(o) { html += buildOrderItemHTML(o, 'COMPLETED'); });
   }
 
   document.getElementById('orders-list').innerHTML = html;
@@ -1458,8 +1469,18 @@ async function startDel(orderId) {
 }
 
 async function completeDel(orderId) {
-  var r = await apiPost('completeOrder', { orderId: orderId, change: '' });
-  if(r && r.success) { activeDelId = null; toast('drv-toast', 'Delivered!', true); drvLoadData(); }
+  // Show loading overlay
+  var loadOverlay = document.createElement('div');
+  loadOverlay.id = 'load-overlay';
+  loadOverlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center';
+  loadOverlay.innerHTML = '<div style="background:#fff;border-radius:14px;padding:28px 36px;text-align:center"><div style="font-size:36px;animation:spin 0.8s linear infinite;display:inline-block">⟳</div><div style="margin-top:10px;font-size:15px;font-weight:600;color:#059669">Saving delivery...</div></div>';
+  document.body.appendChild(loadOverlay);
+  try {
+    var r = await apiPost('completeOrder', { orderId: orderId, change: '' });
+    loadOverlay.remove();
+    if(r && r.success) { activeDelId = null; toast('drv-toast', 'Delivered! ✓', true); drvLoadData(); }
+    else { toast('drv-toast', 'Error completing delivery', false); }
+  } catch(e) { loadOverlay.remove(); toast('drv-toast', 'Error: ' + e.message, false); }
 }
 
 function confirmComplete(orderId) {
@@ -1550,6 +1571,12 @@ function switchTab(t) {
 }
 
 async function loadLive() {
+  var liveEl = document.getElementById('live-list');
+  var refreshBtn = document.querySelector('#tab-live .btn-sm-off');
+  if(liveEl.innerHTML === '<div class="empty">Loading...</div>' || !liveEl.innerHTML) {
+    liveEl.innerHTML = '<div class="empty" style="padding:32px"><div style="font-size:28px;animation:spin 1s linear infinite;display:inline-block">⟳</div><div style="margin-top:8px;font-size:13px;color:#64748B">Loading live status...</div></div>';
+  }
+  if(refreshBtn) { refreshBtn.textContent = '...'; refreshBtn.disabled = true; }
   try {
     var data = await apiGet('getOfficeData');
     var runs   = (data && data.runs)   || [];
@@ -1612,31 +1639,11 @@ async function loadLive() {
       });
     }
 
-    // ── ON THE WAY (PENDING but driver departed) ──
+    // ── PENDING ORDERS (all, simple list) ──
     var pend = orders.filter(function(o) { return o.status === 'PENDING'; });
-    var onTheWay    = pend.filter(function(o) { return _onTheWayIds[o.orderId]; });
-    var trulyPending = pend.filter(function(o) { return !_onTheWayIds[o.orderId]; });
-
-    if(onTheWay.length) {
-      html += '<div class="section-label" style="color:#7C3AED;font-size:12px">🚚 ON THE WAY — Driver departed, not yet delivered (' + onTheWay.length + ')</div>';
-      onTheWay.forEach(function(o) {
-        html += '<div class="order-item order-item-ontheway">' +
-          '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
-            '<span style="font-size:14px;font-weight:600">' + o.businessName + '</span>' +
-            '<span class="status-ontheway">🚚 ON THE WAY</span>' +
-            payBadge(o.payment||'Cash') +
-            '<span style="background:#EDE9FE;color:#7C3AED;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid #C4B5FD">👤 ' + (_onTheWayIds[o.orderId]||'') + '</span>' +
-          '</div>' +
-          (o.billAmount ? '<div style="font-size:12px;color:#64748B;margin-top:3px">Bill: P' + o.billAmount + (o.change && o.payment==='Cash' ? ' | Change: P' + o.change : '') + '</div>' : '') +
-          (o.notes ? '<div style="background:#EDE9FE;border-radius:5px;padding:5px 8px;font-size:12px;color:#6D28D9;margin-top:6px">' + o.notes + '</div>' : '') +
-        '</div>';
-      });
-    }
-
-    // ── TRULY PENDING (no driver departed yet) ──
-    if(trulyPending.length) {
-      html += '<div class="section-label" style="color:#D97706;font-size:12px">⏳ WAITING TO DEPART — Driver has not left yet (' + trulyPending.length + ')</div>';
-      trulyPending.forEach(function(o) {
+    if(pend.length) {
+      html += '<div class="section-label" style="color:#D97706">⏳ PENDING ORDERS (' + pend.length + ')</div>';
+      pend.forEach(function(o) {
         html += '<div class="order-item ' + (o.invoiceNum ? 'order-item-biz' : 'order-item-personal') + '">' +
           '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
             '<span style="font-size:14px;font-weight:600">' + o.businessName + '</span>' +
@@ -1707,6 +1714,7 @@ async function loadLive() {
 
     document.getElementById('live-list').innerHTML = html || '<div class="empty">No activity today</div>';
   } catch(e) { document.getElementById('live-list').innerHTML = '<div class="empty">Error loading</div>'; }
+  if(refreshBtn) { refreshBtn.textContent = 'Refresh'; refreshBtn.disabled = false; }
 }
 
 // ---- VEHICLES ----
@@ -1945,55 +1953,133 @@ async function loadReport() {
 }
 
 function renderReport(data) {
-  var s=data.summary;
-  var dateDisp=data.startDate===data.endDate?
-    new Date(data.startDate+'T00:00:00').toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'}):
-    data.startDate+' ~ '+data.endDate;
-  var html='<div id="print-area">';
-  html+='<div class="report-section" style="text-align:center;background:#1F4E79;color:#fff"><div style="font-size:20px;font-weight:700">H mart</div><div style="font-size:14px;margin-top:4px;opacity:0.85">Daily Operations Report</div><div style="font-size:13px;margin-top:4px;opacity:0.75">'+dateDisp+'</div></div>';
-  html+='<div class="report-section"><div class="report-title">Summary</div><div class="report-grid">'+
-    '<div class="report-stat"><div class="report-stat-num">'+s.completedRuns+'/'+s.totalRuns+'</div><div class="report-stat-lbl">Runs</div></div>'+
-    '<div class="report-stat"><div class="report-stat-num">'+s.totalKm+' km</div><div class="report-stat-lbl">Distance</div></div>'+
-    '<div class="report-stat"><div class="report-stat-num">'+s.completedOrders+'/'+s.totalOrders+'</div><div class="report-stat-lbl">Orders</div></div>'+
-    '<div class="report-stat"><div class="report-stat-num">P'+s.totalBill.toLocaleString()+'</div><div class="report-stat-lbl">Revenue</div></div>'+
+  var s = data.summary;
+  // Re-calculate from raw data to ensure correctness
+  var compRuns   = (data.runs   || []).filter(function(r) { return r.status === 'COMPLETED'; });
+  var compOrders = (data.orders || []).filter(function(o) { return o.status === 'COMPLETED'; });
+  var totalKm    = compRuns.reduce(function(acc, r) { return acc + (parseFloat(r.distKm) || 0); }, 0);
+  var totalBill  = compOrders.reduce(function(acc, o) { return acc + (parseFloat(o.billAmount) || 0); }, 0);
+  var totalFuelL = (data.fuels || []).reduce(function(acc, f) { return acc + (parseFloat(f.liters) || 0); }, 0);
+  var totalFuelCost = (data.fuels || []).reduce(function(acc, f) { return acc + (parseFloat(f.amount) || 0); }, 0);
+
+  // Re-build payBreakdown
+  var payBreakdown = {};
+  compOrders.forEach(function(o) {
+    var p = o.payment || 'Cash';
+    if(!payBreakdown[p]) payBreakdown[p] = { count:0, amount:0, change:0 };
+    payBreakdown[p].count++;
+    payBreakdown[p].amount += parseFloat(o.billAmount) || 0;
+    if(p === 'Cash') payBreakdown[p].change += parseFloat(o.change) || 0;
+  });
+
+  // Re-build driverMap from ALL runs (not just completed)
+  var driverMap = {};
+  (data.runs || []).forEach(function(r) {
+    var d = r.driver;
+    if(!d) return;
+    if(!driverMap[d]) driverMap[d] = { runs:0, km:0, orders:0 };
+    driverMap[d].runs++;
+    driverMap[d].km += parseFloat(r.distKm) || 0;
+  });
+  (data.orders || []).forEach(function(o) {
+    if(!o.driver) return;
+    if(!driverMap[o.driver]) driverMap[o.driver] = { runs:0, km:0, orders:0 };
+    if(o.status === 'COMPLETED') driverMap[o.driver].orders++;
+  });
+
+  // Re-build vehicleMap
+  var vehicleMap = {};
+  (data.runs || []).forEach(function(r) {
+    var key = (r.vehicle||'unknown') + (r.plate ? ' (' + r.plate + ')' : '');
+    if(!vehicleMap[key]) vehicleMap[key] = { runs:0, km:0, fuelL:0, fuelCost:0 };
+    vehicleMap[key].runs++;
+    vehicleMap[key].km += parseFloat(r.distKm) || 0;
+  });
+  (data.fuels || []).forEach(function(f) {
+    var key = (f.vehicle||'unknown') + (f.plate ? ' (' + f.plate + ')' : '');
+    if(!vehicleMap[key]) vehicleMap[key] = { runs:0, km:0, fuelL:0, fuelCost:0 };
+    vehicleMap[key].fuelL   += parseFloat(f.liters) || 0;
+    vehicleMap[key].fuelCost += parseFloat(f.amount) || 0;
+  });
+
+  var dateDisp = data.startDate === data.endDate ?
+    new Date(data.startDate + 'T00:00:00').toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'}) :
+    data.startDate + ' ~ ' + data.endDate;
+
+  var html = '<div id="print-area">';
+  html += '<div class="report-section" style="text-align:center;background:#1F4E79;color:#fff"><div style="font-size:20px;font-weight:700">H mart</div><div style="font-size:14px;margin-top:4px;opacity:0.85">Daily Operations Report</div><div style="font-size:13px;margin-top:4px;opacity:0.75">' + dateDisp + '</div></div>';
+
+  // Summary
+  html += '<div class="report-section"><div class="report-title">Summary</div><div class="report-grid">' +
+    '<div class="report-stat"><div class="report-stat-num">' + compRuns.length + '/' + (data.runs||[]).length + '</div><div class="report-stat-lbl">Runs Completed</div></div>' +
+    '<div class="report-stat"><div class="report-stat-num">' + (Math.round(totalKm*10)/10) + ' km</div><div class="report-stat-lbl">Total Distance</div></div>' +
+    '<div class="report-stat"><div class="report-stat-num">' + compOrders.length + '/' + (data.orders||[]).length + '</div><div class="report-stat-lbl">Orders Done</div></div>' +
+    '<div class="report-stat"><div class="report-stat-num">P' + Math.round(totalBill).toLocaleString() + '</div><div class="report-stat-lbl">Revenue</div></div>' +
   '</div></div>';
-  if(Object.keys(s.payBreakdown).length){
-    html+='<div class="report-section"><div class="report-title">Payment Breakdown</div><div style="overflow-x:auto"><table class="report-table" style="min-width:400px"><thead><tr><th>Method</th><th>Orders</th><th>Amount</th><th>Change</th></tr></thead><tbody>';
-    Object.keys(s.payBreakdown).forEach(function(p){var pb=s.payBreakdown[p];html+='<tr><td><strong>'+p+'</strong></td><td>'+pb.count+'</td><td>P'+pb.amount.toLocaleString()+'</td><td>'+(pb.change?'P'+pb.change.toLocaleString():'-')+'</td></tr>';});
-    html+='</tbody></table></div></div>';
-  }
-  if(Object.keys(s.driverMap).length){
-    html+='<div class="report-section"><div class="report-title">Driver Summary</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>Driver</th><th>Runs</th><th>Distance</th><th>Orders</th></tr></thead><tbody>';
-    Object.keys(s.driverMap).forEach(function(d){var dm=s.driverMap[d];html+='<tr><td><strong>'+d+'</strong></td><td>'+dm.runs+'</td><td>'+(Math.round(dm.km*10)/10)+' km</td><td>'+dm.orders+'</td></tr>';});
-    html+='</tbody></table></div></div>';
-  }
-  if(Object.keys(s.vehicleMap).length){
-    html+='<div class="report-section"><div class="report-title">Vehicle Summary</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>Vehicle</th><th>Runs</th><th>Distance</th><th>Fuel (L)</th><th>Fuel Cost</th><th>km/L</th></tr></thead><tbody>';
-    Object.keys(s.vehicleMap).forEach(function(v){var vm=s.vehicleMap[v];var eff=vm.fuelL>0?Math.round((vm.km/vm.fuelL)*10)/10+' km/L':'-';html+='<tr><td><strong>'+v+'</strong></td><td>'+vm.runs+'</td><td>'+(Math.round(vm.km*10)/10)+' km</td><td>'+(vm.fuelL||'-')+'</td><td>'+(vm.fuelCost?'P'+vm.fuelCost.toLocaleString():'-')+'</td><td>'+eff+'</td></tr>';});
-    html+='</tbody></table></div></div>';
-  }
-  if(data.fuels.length){
-    html+='<div class="report-section"><div class="report-title">Fuel Log</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>Vehicle</th><th>Driver</th><th>Liters</th><th>Amount</th><th>Odometer</th><th>Station</th></tr></thead><tbody>';
-    data.fuels.forEach(function(f){html+='<tr><td>'+f.vehicle+'</td><td>'+(f.driver||'-')+'</td><td>'+f.liters+' L</td><td>P'+f.amount.toLocaleString()+'</td><td>'+(f.odometer||'-')+'</td><td>'+(f.station||'-')+'</td></tr>';});
-    html+='<tr style="font-weight:700;background:#F0FDF4"><td colspan="2">TOTAL</td><td>'+s.totalFuelLiters+' L</td><td>P'+s.totalFuelCost.toLocaleString()+'</td><td colspan="2"></td></tr>';
-    html+='</tbody></table></div></div>';
-  }
-  if(data.checklists.length){
-    html+='<div class="report-section"><div class="report-title">Checklist</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>Driver</th><th>Vehicle</th><th>Shift</th><th>Battery</th><th>Lights</th><th>Oil</th><th>Water</th><th>Brakes</th><th>Tires</th><th>Remarks</th></tr></thead><tbody>';
-    data.checklists.forEach(function(c){
-      function badge(v){return v==='NG'?'<span class="ng-badge">NG</span>':'<span class="ok-badge">OK</span>';}
-      html+='<tr><td>'+c.driver+'</td><td>'+c.vehicle+'</td><td>'+c.shift+'</td><td>'+badge(c.battery)+'</td><td>'+badge(c.lights)+'</td><td>'+badge(c.oil)+'</td><td>'+badge(c.water)+'</td><td>'+badge(c.brakes)+'</td><td>'+badge(c.tires)+'</td><td style="font-size:12px">'+(c.remarks||'-')+'</td></tr>';
+
+  // Payment Breakdown
+  if(Object.keys(payBreakdown).length) {
+    html += '<div class="report-section"><div class="report-title">Payment Breakdown</div><div style="overflow-x:auto"><table class="report-table" style="min-width:400px"><thead><tr><th>Method</th><th>Orders</th><th>Amount</th><th>Change</th></tr></thead><tbody>';
+    Object.keys(payBreakdown).forEach(function(p) {
+      var pb = payBreakdown[p];
+      html += '<tr><td><strong>' + p + '</strong></td><td>' + pb.count + '</td><td>P' + Math.round(pb.amount).toLocaleString() + '</td><td>' + (pb.change ? 'P' + Math.round(pb.change).toLocaleString() : '-') + '</td></tr>';
     });
-    html+='</tbody></table></div></div>';
+    html += '</tbody></table></div></div>';
   }
-  if(data.orders.length){
-    html+='<div class="report-section"><div class="report-title">Delivery Details</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>#</th><th>Business</th><th>Invoice</th><th>Driver</th><th>Payment</th><th>Amount</th><th>Change</th><th>Status</th><th>Time</th></tr></thead><tbody>';
-    data.orders.forEach(function(o,idx){html+='<tr><td>'+(idx+1)+'</td><td><strong>'+o.businessName+'</strong></td><td>'+(o.invoiceNum||'-')+'</td><td>'+(o.driver||'-')+'</td><td>'+o.payment+'</td><td>'+(o.billAmount?'P'+o.billAmount.toLocaleString():'-')+'</td><td>'+(o.change&&o.payment==='Cash'?'P'+o.change:'-')+'</td><td>'+o.status+'</td><td>'+(o.completeTime||'-')+'</td></tr>';});
-    html+='</tbody></table></div></div>';
+
+  // Driver Summary
+  if(Object.keys(driverMap).length) {
+    html += '<div class="report-section"><div class="report-title">Driver Summary</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>Driver</th><th>Runs</th><th>Distance</th><th>Orders Done</th></tr></thead><tbody>';
+    Object.keys(driverMap).forEach(function(d) {
+      var dm = driverMap[d];
+      html += '<tr><td><strong>' + d + '</strong></td><td>' + dm.runs + '</td><td>' + (Math.round(dm.km*10)/10) + ' km</td><td>' + dm.orders + '</td></tr>';
+    });
+    html += '</tbody></table></div></div>';
   }
-  html+='<div style="text-align:center;font-size:11px;color:#94A3B8;margin-top:16px;padding-top:12px;border-top:1px solid #E2E8F0">Generated: '+new Date().toLocaleString()+'</div>';
-  html+='</div>';
-  document.getElementById('report-body').innerHTML=html;
+
+  // Vehicle Summary
+  if(Object.keys(vehicleMap).length) {
+    html += '<div class="report-section"><div class="report-title">Vehicle Summary</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>Vehicle</th><th>Runs</th><th>Distance</th><th>Fuel (L)</th><th>Fuel Cost</th><th>km/L</th></tr></thead><tbody>';
+    Object.keys(vehicleMap).forEach(function(v) {
+      var vm = vehicleMap[v];
+      var eff = vm.fuelL > 0 ? (Math.round((vm.km / vm.fuelL)*10)/10) + ' km/L' : '-';
+      html += '<tr><td><strong>' + v + '</strong></td><td>' + vm.runs + '</td><td>' + (Math.round(vm.km*10)/10) + ' km</td><td>' + (vm.fuelL ? (Math.round(vm.fuelL*10)/10) : '-') + '</td><td>' + (vm.fuelCost ? 'P' + Math.round(vm.fuelCost).toLocaleString() : '-') + '</td><td>' + eff + '</td></tr>';
+    });
+    html += '</tbody></table></div></div>';
+  }
+
+  // Fuel Log
+  if((data.fuels||[]).length) {
+    html += '<div class="report-section"><div class="report-title">Fuel Log</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>Vehicle</th><th>Driver</th><th>Liters</th><th>Amount</th><th>Odometer</th><th>Station</th></tr></thead><tbody>';
+    data.fuels.forEach(function(f) {
+      html += '<tr><td>' + f.vehicle + '</td><td>' + (f.driver||'-') + '</td><td>' + f.liters + ' L</td><td>P' + Math.round(f.amount).toLocaleString() + '</td><td>' + (f.odometer||'-') + '</td><td>' + (f.station||'-') + '</td></tr>';
+    });
+    html += '<tr style="font-weight:700;background:#F0FDF4"><td colspan="2">TOTAL</td><td>' + (Math.round(totalFuelL*10)/10) + ' L</td><td>P' + Math.round(totalFuelCost).toLocaleString() + '</td><td colspan="2"></td></tr>';
+    html += '</tbody></table></div></div>';
+  }
+
+  // Checklist
+  if((data.checklists||[]).length) {
+    html += '<div class="report-section"><div class="report-title">Checklist</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>Driver</th><th>Vehicle</th><th>Shift</th><th>Battery</th><th>Lights</th><th>Oil</th><th>Water</th><th>Brakes</th><th>Tires</th><th>Remarks</th></tr></thead><tbody>';
+    data.checklists.forEach(function(c) {
+      function badge(v) { return v==='NG' ? '<span class="ng-badge">NG</span>' : '<span class="ok-badge">OK</span>'; }
+      html += '<tr><td>' + c.driver + '</td><td>' + c.vehicle + '</td><td>' + c.shift + '</td><td>' + badge(c.battery) + '</td><td>' + badge(c.lights) + '</td><td>' + badge(c.oil) + '</td><td>' + badge(c.water) + '</td><td>' + badge(c.brakes) + '</td><td>' + badge(c.tires) + '</td><td style="font-size:12px">' + (c.remarks||'-') + '</td></tr>';
+    });
+    html += '</tbody></table></div></div>';
+  }
+
+  // Delivery Details
+  if((data.orders||[]).length) {
+    html += '<div class="report-section"><div class="report-title">Delivery Details</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>#</th><th>Business</th><th>Invoice</th><th>Driver</th><th>Payment</th><th>Amount</th><th>Change</th><th>Status</th><th>Time</th></tr></thead><tbody>';
+    data.orders.forEach(function(o, idx) {
+      html += '<tr><td>' + (idx+1) + '</td><td><strong>' + o.businessName + '</strong></td><td>' + (o.invoiceNum||'-') + '</td><td>' + (o.driver||'-') + '</td><td>' + o.payment + '</td><td>' + (o.billAmount ? 'P' + Math.round(o.billAmount).toLocaleString() : '-') + '</td><td>' + (o.change && o.payment==='Cash' ? 'P' + o.change : '-') + '</td><td>' + o.status + '</td><td>' + (o.completeTime||'-') + '</td></tr>';
+    });
+    html += '</tbody></table></div></div>';
+  }
+
+  html += '<div style="text-align:center;font-size:11px;color:#94A3B8;margin-top:16px;padding-top:12px;border-top:1px solid #E2E8F0">Generated: ' + new Date().toLocaleString() + '</div>';
+  html += '</div>';
+  document.getElementById('report-body').innerHTML = html;
 }
 
 function printReport(){window.print();}
@@ -2147,9 +2233,10 @@ function calcHours(start, end) {
 function loadAttendance() {
   buildAttDriverTable();
   var dateEl = document.getElementById('att-date');
+  var selDate = new Date().toISOString().slice(0,10);
   if(dateEl) {
-    if(!dateEl.value) dateEl.value = new Date().toISOString().slice(0,10);
-    var selDate = dateEl.value;
+    if(!dateEl.value) dateEl.value = selDate;
+    selDate = dateEl.value;
     try {
       var ab = localStorage.getItem('hmart_actual_breaks_' + selDate);
       actualBreaks = ab ? JSON.parse(ab) : {};
@@ -2158,18 +2245,39 @@ function loadAttendance() {
     } catch(e) { actualBreaks = {}; actualClockouts = {}; }
   }
   renderOvertimeList();
+
+  var isToday = (selDate === new Date().toISOString().slice(0,10));
   var now = new Date();
   var nowMins = now.getHours()*60 + now.getMinutes();
+
   var html = DRIVERS.map(function(d) {
     var sc = getDriverSched(d);
     var actualB = actualBreaks[d] || null;
+    var actualCO = actualClockouts[d] || null;
     var bStart = actualB || sc.breakStart;
     var bMins = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
-    var onBreak = bMins > -1 && nowMins >= bMins && nowMins < bMins + 60;
-    var statusColor = onBreak ? '#F59E0B' : '#059669';
-    var statusText  = onBreak ? '☕ On Break' : '✓ Available';
+
+    // Status only meaningful for today
+    var onBreak = isToday && bMins > -1 && nowMins >= bMins && nowMins < bMins + 60;
     var schedBMins = sc.breakStart ? parseInt(sc.breakStart.split(':')[0])*60+parseInt(sc.breakStart.split(':')[1]) : -1;
-    var breakOverdue = !actualB && schedBMins > -1 && nowMins > schedBMins + 30;
+    var breakOverdue = isToday && !actualB && schedBMins > -1 && nowMins > schedBMins + 30;
+    var clocked_out = isToday && actualCO && (function() {
+      var coMins = parseInt(actualCO.split(':')[0])*60+parseInt(actualCO.split(':')[1]);
+      return nowMins >= coMins;
+    })();
+
+    var statusColor, statusText;
+    if(!isToday) {
+      // Past date — just show recorded times
+      statusColor = '#64748B'; statusText = '📅 ' + selDate;
+    } else if(clocked_out) {
+      statusColor = '#374151'; statusText = '🔴 Clocked Out';
+    } else if(onBreak) {
+      statusColor = '#F59E0B'; statusText = '☕ On Break';
+    } else {
+      statusColor = '#059669'; statusText = '✓ Available';
+    }
+
     return '<div style="background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:12px;margin-bottom:8px;border-left:4px solid ' + statusColor + '">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">' +
         '<div style="font-size:14px;font-weight:700">' + d + '</div>' +
@@ -2178,9 +2286,9 @@ function loadAttendance() {
       '<div style="display:flex;gap:12px;font-size:12px;color:#374151;flex-wrap:wrap">' +
         (sc.clockin  ? '<span>🟢 In: <strong>' + sc.clockin + '</strong></span>' : '') +
         (bStart ? '<span>' + (actualB ? '☕ Actual Break: ' : '☕ Sched Break: ') + '<strong>' + bStart + '</strong></span>' : '<span style="color:#94A3B8">No break set</span>') +
-        (sc.clockout ? '<span>🔴 Out: <strong>' + sc.clockout + '</strong></span>' : '') +
+        (sc.clockout ? '<span>🔴 Sched Out: <strong>' + sc.clockout + '</strong></span>' : '') +
+        (actualCO ? '<span style="color:#DC2626;font-weight:700">Actual Out: ' + actualCO + '</span>' : '') +
         (sc.clockin && sc.clockout ? '<span style="color:#1F4E79;font-weight:600">Est: ' + calcHours(sc.clockin, sc.clockout) + '</span>' : '') +
-        (actualClockouts[d] && actualClockouts[d] !== sc.clockout ? '<span style="color:#DC2626;font-weight:600">Actual Out: ' + actualClockouts[d] + '</span>' : '') +
       '</div>' +
       (breakOverdue ? '<div style="background:#FEE2E2;border-radius:5px;padding:5px 8px;font-size:11px;color:#DC2626;font-weight:600;margin-top:6px">⚠ Break time passed — actual break not yet recorded</div>' : '') +
       (sc.notes ? '<div style="font-size:11px;color:#92400E;background:#FEF3C7;padding:4px 8px;border-radius:4px;margin-top:6px">' + sc.notes + '</div>' : '') +
@@ -2317,6 +2425,58 @@ async function specialArrive() {
       }, 2000);
     } else toast('drv-toast', (r && r.message) || 'Error', false);
   } catch(e) { btn.textContent = 'Complete Special Run ✓'; btn.disabled = false; toast('drv-toast', 'Error: ' + e.message, false); }
+}
+</script>
+
+<script>
+// ---- PWA SERVICE WORKER REGISTRATION ----
+if('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('/hmart-delivery/sw.js')
+      .then(function(reg) {
+        console.log('[PWA] Service Worker registered:', reg.scope);
+        // Check for updates
+        reg.addEventListener('updatefound', function() {
+          var newWorker = reg.installing;
+          newWorker.addEventListener('statechange', function() {
+            if(newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              showNetworkStatus('App updated! Refresh to get latest version.', 'orange');
+            }
+          });
+        });
+      })
+      .catch(function(err) {
+        console.log('[PWA] Service Worker registration failed:', err);
+      });
+  });
+}
+
+// PWA install prompt
+var deferredPrompt;
+window.addEventListener('beforeinstallprompt', function(e) {
+  e.preventDefault();
+  deferredPrompt = e;
+  // Show install button after a delay
+  setTimeout(function() {
+    var installBar = document.getElementById('install-bar');
+    if(installBar) installBar.style.display = 'flex';
+  }, 3000);
+});
+
+window.addEventListener('appinstalled', function() {
+  var installBar = document.getElementById('install-bar');
+  if(installBar) installBar.style.display = 'none';
+  deferredPrompt = null;
+});
+
+function installApp() {
+  if(!deferredPrompt) return;
+  deferredPrompt.prompt();
+  deferredPrompt.userChoice.then(function(choice) {
+    deferredPrompt = null;
+    var installBar = document.getElementById('install-bar');
+    if(installBar) installBar.style.display = 'none';
+  });
 }
 </script>
 
