@@ -323,7 +323,9 @@ async function apiGet(action, params) {
             completeTime: o.completeTime||'', notes: o.notes||'',
             payment: o.payment||'Cash', billAmount: o.billAmount||'',
             cancelCount: o.cancelCount||0, flagged: o.flagged||false,
-            startTime: o.startTime||'', flagReason: o.flagReason||''
+            startTime: o.startTime||'', flagReason: o.flagReason||'',
+            createdTime: o.createdTime||'',
+            timeline: o.timeline || null
           };
         });
       var runs = fb.objToArr(runObj).filter(function(ru) { return ru.date === today; })
@@ -468,7 +470,9 @@ async function apiPost(action, data, _bypassQueue) {
           invoiceNum: ord.invoiceNum||'', driver: ord.driver||'',
           billAmount: ord.billAmount||'', change: ord.change||'',
           payment: ord.payment||'Cash', notes: ord.notes||'',
-          status: 'PENDING', completeTime: ''
+          status: 'PENDING', completeTime: '',
+          createdTime: now,
+          timeline: [{ time: now, event: 'created', by: 'office', note: ord.driver ? 'Assigned to ' + ord.driver : 'Unassigned' }]
         });
         count++;
       }
@@ -477,7 +481,10 @@ async function apiPost(action, data, _bypassQueue) {
 
     // ── assignDriver ───────────────────────────────────────
     if(action === 'assignDriver') {
-      await dbUpdate('hmart/orders/' + data.orderId, { driver: data.driver });
+      var curOrdA = await dbGet('hmart/orders/' + data.orderId);
+      var tlA = (curOrdA && curOrdA.timeline) ? Object.values(curOrdA.timeline) : [];
+      tlA.push({ time: now, event: 'assigned', by: 'office', note: 'Driver: ' + data.driver });
+      await dbUpdate('hmart/orders/' + data.orderId, { driver: data.driver, timeline: tlA });
       return { success: true };
     }
 
@@ -489,36 +496,45 @@ async function apiPost(action, data, _bypassQueue) {
 
     // ── setOrderInProgress ─────────────────────────────────
     if(action === 'setOrderInProgress') {
+      var curOrdP = await dbGet('hmart/orders/' + data.orderId);
+      var tlP = (curOrdP && curOrdP.timeline) ? Object.values(curOrdP.timeline) : [];
+      tlP.push({ time: now, event: 'started', by: data.driver||'', note: 'Delivery started' });
       await dbUpdate('hmart/orders/' + data.orderId, {
-        status: 'IN PROGRESS',
-        startTime: now,  // record when driver tapped START
-        startedBy: data.driver || ''
+        status: 'IN PROGRESS', startTime: now, startedBy: data.driver||'', timeline: tlP
       });
       return { success: true };
     }
 
     // ── cancelOrderProgress ────────────────────────────────
     if(action === 'cancelOrderProgress') {
-      // Read current cancel count, increment it
       var curOrd = await dbGet('hmart/orders/' + data.orderId);
       var cancelCount = ((curOrd && curOrd.cancelCount) || 0) + 1;
-      await dbUpdate('hmart/orders/' + data.orderId, {
-        status: 'PENDING',
-        cancelCount: cancelCount,
-        lastCancelTime: now,
-        lastCancelBy: data.driver || ''
-      });
-      // Flag if too many cancels (3+)
-      if(cancelCount >= 3) {
-        await dbUpdate('hmart/orders/' + data.orderId, { flagged: true, flagReason: 'Cancel ' + cancelCount + 'x repeated' });
-      }
+      var tlC = (curOrd && curOrd.timeline) ? Object.values(curOrd.timeline) : [];
+      tlC.push({ time: now, event: 'cancelled', by: data.driver||'', note: 'Cancel #' + cancelCount });
+      var updC = {
+        status: 'PENDING', cancelCount: cancelCount,
+        lastCancelTime: now, lastCancelBy: data.driver||'', timeline: tlC
+      };
+      if(cancelCount >= 3) { updC.flagged = true; updC.flagReason = 'Cancel ' + cancelCount + 'x repeated'; }
+      await dbUpdate('hmart/orders/' + data.orderId, updC);
       return { success: true, cancelCount: cancelCount };
     }
 
     // ── completeOrder ──────────────────────────────────────
     if(action === 'completeOrder') {
+      var curOrdD = await dbGet('hmart/orders/' + data.orderId);
+      var tlD = (curOrdD && curOrdD.timeline) ? Object.values(curOrdD.timeline) : [];
+      // Calculate delivery duration
+      var durNote = '';
+      if(curOrdD && curOrdD.startTime) {
+        var startMins = parseInt(curOrdD.startTime.split(':')[0])*60 + parseInt(curOrdD.startTime.split(':')[1]);
+        var nowMins   = parseInt(now.split(':')[0])*60 + parseInt(now.split(':')[1]);
+        var dur = nowMins - startMins;
+        if(dur > 0 && dur < 480) durNote = ' (' + dur + ' min)';
+      }
+      tlD.push({ time: now, event: 'completed', by: data.driver||curOrdD&&curOrdD.startedBy||'', note: 'Delivered' + durNote });
       await dbUpdate('hmart/orders/' + data.orderId, {
-        status: 'COMPLETED', completeTime: now, change: data.change||''
+        status: 'COMPLETED', completeTime: now, change: data.change||'', timeline: tlD
       });
       return { success: true };
     }
@@ -1007,6 +1023,7 @@ function showNetworkStatus(msg, color) {
     <div class="off-nav">
       <button class="nav-btn active" onclick="switchTab('orders')">Orders</button>
       <button class="nav-btn" onclick="switchTab('live')">Live Status</button>
+      <button class="nav-btn" onclick="switchTab('performance')">Performance</button>
       <button class="nav-btn" onclick="switchTab('vehicles')">Vehicles</button>
       <button class="nav-btn" onclick="switchTab('attendance')">Attendance</button>
       <button class="nav-btn" onclick="switchTab('checklist')">Checklist</button>
@@ -1051,6 +1068,35 @@ function showNetworkStatus(msg, color) {
           </div>
           <div id="orders-list"><div class="empty">Loading...</div></div>
         </div>
+      </div>
+    </div>
+
+    <div id="tab-performance" class="off-screen">
+      <div id="toast-perf" class="toast"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+        <div>
+          <div style="font-size:16px;font-weight:700;color:#1F4E79">Driver Performance</div>
+          <div style="font-size:12px;color:#64748B;margin-top:2px">Based on today's data</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="perf-range" onchange="loadPerformance()" style="padding:6px 10px;border:1px solid #D1D5DB;border-radius:6px;font-size:12px">
+            <option value="today">Today</option>
+            <option value="week">This Week</option>
+            <option value="month">This Month</option>
+          </select>
+          <button class="btn-sm-off" onclick="loadPerformance()">Refresh</button>
+        </div>
+      </div>
+
+      <!-- Summary stats row -->
+      <div id="perf-summary" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px"></div>
+
+      <!-- Flags / warnings -->
+      <div id="perf-flags" style="margin-bottom:16px"></div>
+
+      <!-- Driver cards grid -->
+      <div id="perf-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">
+        <div class="empty">Loading...</div>
       </div>
     </div>
 
@@ -1640,7 +1686,38 @@ function buildOrderItemHTML(o, displayStatus) {
       (o.change && o.payment === 'Cash' ? '<span style="font-size:12px;color:#059669;font-weight:600">Change: P' + o.change + '</span>' : '') +
       (o.completeTime ? '<span style="font-size:12px;color:#64748B">Done: ' + o.completeTime + '</span>' : '') +
     '</div>' +
-    (o.notes ? '<div style="background:#FEF3C7;border-radius:5px;padding:5px 8px;font-size:12px;color:#92400E;margin-top:6px;font-weight:500">' + o.notes + '</div>' : '');
+    (o.notes ? '<div style="background:#FEF3C7;border-radius:5px;padding:5px 8px;font-size:12px;color:#92400E;margin-top:6px;font-weight:500">' + o.notes + '</div>' : '') +
+    // Stale order warning — pending for 30+ mins
+    (displayStatus === 'PENDING' && o.createdTime ? (function() {
+      var ct = o.createdTime;
+      var nowM = new Date().getHours()*60 + new Date().getMinutes();
+      var ctM  = ct ? parseInt(ct.split(':')[0])*60 + parseInt(ct.split(':')[1]) : nowM;
+      var diff = nowM - ctM;
+      if(diff >= 60) return '<div style="background:#FEE2E2;border-radius:5px;padding:5px 8px;font-size:11px;color:#DC2626;font-weight:700;margin-top:6px;animation:pulse 1.5s infinite">🔴 Waiting ' + diff + ' min — needs attention!</div>';
+      if(diff >= 30) return '<div style="background:#FEF3C7;border-radius:5px;padding:5px 8px;font-size:11px;color:#92400E;font-weight:600;margin-top:6px">⚠ Waiting ' + diff + ' min</div>';
+      return '';
+    })() : '') +
+    // Timeline — collapsible
+    (o.timeline && Object.values(o.timeline).length > 0 ? (function() {
+      var tl = Object.values(o.timeline);
+      var icons = { created:'📝', assigned:'👤', departed:'🚀', started:'▶', cancelled:'✕', completed:'✓' };
+      var colors = { created:'#64748B', assigned:'#1F4E79', departed:'#7C3AED', started:'#1D4ED8', cancelled:'#DC2626', completed:'#059669' };
+      return '<div style="margin-top:6px">' +
+        '<button onclick="toggleTimeline(\'' + o.orderId + '\')" style="font-size:10px;color:#94A3B8;background:none;border:none;cursor:pointer;padding:0">🕐 Timeline (' + tl.length + ' events) ▾</button>' +
+        '<div id="tl-' + o.orderId + '" style="display:none;margin-top:6px;border-left:2px solid #E2E8F0;padding-left:10px">' +
+          tl.map(function(t) {
+            var ic = icons[t.event] || '•';
+            var cl = colors[t.event] || '#64748B';
+            return '<div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:5px;font-size:11px">' +
+              '<span style="color:' + cl + ';font-weight:700;white-space:nowrap">' + t.time + '</span>' +
+              '<span style="color:' + cl + '">' + ic + '</span>' +
+              '<span style="color:#374151">' + (t.note||t.event) + '</span>' +
+              (t.by ? '<span style="color:#94A3B8;margin-left:auto">' + t.by + '</span>' : '') +
+            '</div>';
+          }).join('') +
+        '</div>' +
+      '</div>';
+    })() : '');
 
   if(displayStatus !== 'COMPLETED') {
     // Amount edit row — show for PENDING orders without amount, or all non-completed
@@ -1758,6 +1835,11 @@ async function delOrder(orderId) {
 }
 
 // ---- ORDER INLINE EDIT ----
+function toggleTimeline(orderId) {
+  var el = document.getElementById('tl-' + orderId);
+  if(el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
 function toggleOrderEdit(orderId) {
   var panel = document.getElementById('edit-panel-' + orderId);
   if(!panel) return;
@@ -2366,12 +2448,13 @@ async function drvArrive() {
 
 // ---- LIVE STATUS ----
 function switchTab(t) {
-  var tabs = ['orders','live','vehicles','attendance','checklist','fuel'];
+  var tabs = ['orders','live','performance','vehicles','attendance','checklist','fuel'];
   document.querySelectorAll('.nav-btn').forEach(function(b, i) { b.classList.toggle('active', tabs[i] === t); });
   document.querySelectorAll('.off-screen').forEach(function(s) { s.classList.remove('active'); });
   document.getElementById('tab-' + t).classList.add('active');
   if(t === 'orders') loadOrders();
   else if(t === 'live') loadLive();
+  else if(t === 'performance') loadPerformance();
   else if(t === 'vehicles') loadVehicles();
   else if(t === 'attendance') { loadAttendance(); buildAttDriverTable(); }
   else if(t === 'fuel') loadFuel();
@@ -2558,7 +2641,162 @@ async function loadLive() {
   if(refreshBtn) { refreshBtn.textContent = 'Refresh'; refreshBtn.disabled = false; }
 }
 
-// ---- VEHICLES ----
+// ---- PERFORMANCE DASHBOARD ----
+async function loadPerformance() {
+  var grid    = document.getElementById('perf-grid');
+  var summary = document.getElementById('perf-summary');
+  var flags   = document.getElementById('perf-flags');
+  var range   = (document.getElementById('perf-range') || {}).value || 'today';
+  if(grid) grid.innerHTML = '<div class="empty" style="padding:32px"><div style="font-size:28px;animation:spin 1s linear infinite;display:inline-block">⟳</div><div style="margin-top:8px;font-size:13px;color:#64748B">Loading performance data...</div></div>';
+
+  try {
+    var fb = window._fb;
+    var today = fb.todayStr();
+    var startDate = today, endDate = today;
+    if(range === 'week') {
+      var d = new Date(); var day = d.getDay();
+      var mon = new Date(d); mon.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+      startDate = mon.toLocaleDateString('en-CA');
+    } else if(range === 'month') {
+      startDate = today.slice(0,7) + '-01';
+    }
+
+    // Fetch orders and runs
+    var ordObj = await fb.ref('hmart/orders').once('value').then(function(s){return s.val()||{};});
+    var runObj = await fb.ref('hmart/runs').once('value').then(function(s){return s.val()||{};});
+    // Also check archive
+    var archObj = await fb.ref('hmart/archive').once('value').then(function(s){return s.val()||{};});
+
+    var allOrders2 = fb.objToArr(ordObj).filter(function(o){ return o.date >= startDate && o.date <= endDate; });
+    var allRuns2   = fb.objToArr(runObj).filter(function(r){ return r.date >= startDate && r.date <= endDate; });
+
+    // Add archive data
+    Object.keys(archObj).forEach(function(archDate) {
+      if(archDate < startDate || archDate > endDate) return;
+      var arch = archObj[archDate];
+      if(arch.orders) fb.objToArr(arch.orders).forEach(function(o){ allOrders2.push(o); });
+      if(arch.runs)   fb.objToArr(arch.runs).forEach(function(r){ allRuns2.push(r); });
+    });
+
+    var compOrders = allOrders2.filter(function(o){ return o.status === 'COMPLETED'; });
+    var compRuns   = allRuns2.filter(function(r){ return r.status === 'COMPLETED'; });
+
+    // ── Per-driver stats ──
+    var driverStats = {};
+    DRIVERS.forEach(function(d) {
+      driverStats[d] = { runs:0, km:0, orders:0, cancelCount:0, flagged:0, deliveryTimes:[], totalBill:0 };
+    });
+
+    allRuns2.forEach(function(r) {
+      if(!driverStats[r.driver]) return;
+      driverStats[r.driver].runs++;
+      driverStats[r.driver].km += parseFloat(r.distKm)||0;
+    });
+
+    allOrders2.forEach(function(o) {
+      if(!o.driver || !driverStats[o.driver]) return;
+      if(o.status === 'COMPLETED') {
+        driverStats[o.driver].orders++;
+        driverStats[o.driver].totalBill += parseFloat(o.billAmount)||0;
+        // Calculate delivery time
+        if(o.startTime && o.completeTime) {
+          var sm = parseInt(o.startTime.split(':')[0])*60 + parseInt(o.startTime.split(':')[1]);
+          var cm = parseInt(o.completeTime.split(':')[0])*60 + parseInt(o.completeTime.split(':')[1]);
+          var dur = cm - sm;
+          if(dur > 0 && dur < 240) driverStats[o.driver].deliveryTimes.push(dur);
+        }
+      }
+      if(o.cancelCount) driverStats[o.driver].cancelCount += parseInt(o.cancelCount)||0;
+      if(o.flagged) driverStats[o.driver].flagged++;
+    });
+
+    // ── Summary row ──
+    var totalKm    = compRuns.reduce(function(s,r){ return s+(parseFloat(r.distKm)||0); }, 0);
+    var totalBill  = compOrders.reduce(function(s,o){ return s+(parseFloat(o.billAmount)||0); }, 0);
+    var totalCancel = allOrders2.reduce(function(s,o){ return s+(parseInt(o.cancelCount)||0); }, 0);
+    var avgTimes   = [];
+    Object.values(driverStats).forEach(function(ds){ avgTimes = avgTimes.concat(ds.deliveryTimes); });
+    var avgDelivery = avgTimes.length ? Math.round(avgTimes.reduce(function(a,b){return a+b;},0)/avgTimes.length) : 0;
+
+    if(summary) summary.innerHTML =
+      '<div class="stat"><div class="stat-num">' + compOrders.length + '</div><div class="stat-lbl">Orders Done</div></div>' +
+      '<div class="stat"><div class="stat-num">' + Math.round(totalKm) + ' km</div><div class="stat-lbl">Total Distance</div></div>' +
+      '<div class="stat"><div class="stat-num">' + (avgDelivery || '-') + (avgDelivery ? ' min' : '') + '</div><div class="stat-lbl">Avg Delivery</div></div>' +
+      '<div class="stat"><div class="stat-num" style="color:' + (totalCancel>0?'#DC2626':'#059669') + '">' + totalCancel + '</div><div class="stat-lbl">Total Cancels</div></div>';
+
+    // ── Flags / warnings ──
+    var flaggedOrders = allOrders2.filter(function(o){ return o.flagged; });
+    if(flags) {
+      if(flaggedOrders.length) {
+        flags.innerHTML = '<div style="background:#FEE2E2;border:1px solid #FCA5A5;border-radius:8px;padding:12px;margin-bottom:8px">' +
+          '<div style="font-size:12px;font-weight:700;color:#DC2626;margin-bottom:6px">⚠ Flagged Orders (' + flaggedOrders.length + ')</div>' +
+          flaggedOrders.map(function(o) {
+            return '<div style="font-size:12px;color:#991B1B;padding:3px 0">' +
+              o.businessName + ' — ' + (o.driver||'?') + ' — ' + o.flagReason + '</div>';
+          }).join('') +
+        '</div>';
+      } else {
+        flags.innerHTML = '';
+      }
+    }
+
+    // ── Driver cards ──
+    if(grid) {
+      grid.innerHTML = DRIVERS.map(function(d) {
+        var ds = driverStats[d];
+        var avg = ds.deliveryTimes.length ?
+          Math.round(ds.deliveryTimes.reduce(function(a,b){return a+b;},0) / ds.deliveryTimes.length) : null;
+        var sc = getDriverSched(d);
+        var isDayOff = sc && sc.dayOff;
+
+        // Performance score (simple: orders done, no flags = good)
+        var score = 'good';
+        if(ds.flagged > 0 || ds.cancelCount >= 3) score = 'warn';
+        if(ds.flagged >= 2 || ds.cancelCount >= 5) score = 'bad';
+        var scoreColor = score === 'good' ? '#059669' : score === 'warn' ? '#F59E0B' : '#DC2626';
+        var scoreBg    = score === 'good' ? '#F0FDF4'  : score === 'warn' ? '#FFFBEB'  : '#FEF2F2';
+
+        return '<div style="background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:16px;' +
+          (isDayOff ? 'opacity:0.5;' : '') + '">' +
+          // Header
+          '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">' +
+            '<div style="width:42px;height:42px;border-radius:50%;background:' + scoreColor + ';display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#fff;flex-shrink:0">' +
+              d.charAt(0) +
+            '</div>' +
+            '<div>' +
+              '<div style="font-size:15px;font-weight:700">' + d + '</div>' +
+              '<div style="font-size:11px;color:#64748B">' + (isDayOff ? '🏖 Day Off' : range === 'today' ? 'Today' : range === 'week' ? 'This Week' : 'This Month') + '</div>' +
+            '</div>' +
+            '<div style="margin-left:auto;background:' + scoreBg + ';color:' + scoreColor + ';font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px">' +
+              (score === 'good' ? '✓ Good' : score === 'warn' ? '⚠ Watch' : '🔴 Issue') +
+            '</div>' +
+          '</div>' +
+          // Stats grid
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+            _perfStat('Runs', ds.runs, '#1F4E79') +
+            _perfStat('Distance', Math.round(ds.km*10)/10 + ' km', '#1F4E79') +
+            _perfStat('Orders Done', ds.orders, '#059669') +
+            _perfStat('Avg Delivery', avg ? avg + ' min' : '-', '#374151') +
+            _perfStat('Cancels', ds.cancelCount, ds.cancelCount > 0 ? '#DC2626' : '#059669') +
+            _perfStat('Revenue', ds.totalBill > 0 ? 'P' + Math.round(ds.totalBill).toLocaleString() : '-', '#059669') +
+          '</div>' +
+          // Cancel warning
+          (ds.flagged > 0 ? '<div style="background:#FEE2E2;border-radius:6px;padding:6px 8px;font-size:11px;color:#DC2626;font-weight:600;margin-top:10px">⚠ ' + ds.flagged + ' flagged order(s) — review needed</div>' : '') +
+        '</div>';
+      }).join('');
+    }
+
+  } catch(e) {
+    if(grid) grid.innerHTML = '<div class="empty">Error: ' + e.message + '</div>';
+  }
+}
+
+function _perfStat(label, value, color) {
+  return '<div style="background:#F8FAFC;border-radius:7px;padding:8px 10px;text-align:center">' +
+    '<div style="font-size:16px;font-weight:700;color:' + (color||'#374151') + '">' + value + '</div>' +
+    '<div style="font-size:10px;color:#94A3B8;margin-top:2px;text-transform:uppercase;letter-spacing:0.05em">' + label + '</div>' +
+  '</div>';
+}
 async function loadVehicles() {
   document.getElementById('veh-list').innerHTML = '<div class="empty">Loading...</div>';
   try {
