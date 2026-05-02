@@ -370,16 +370,53 @@ async function apiGet(action, params) {
       var start = (params && params.startDate) || today;
       var end   = (params && params.endDate)   || start;
       function inRange(d) { return d && d >= start && d <= end; }
+
+      // Get live data
       var ordObj  = await dbGet('hmart/orders')     || {};
       var runObj  = await dbGet('hmart/runs')        || {};
       var fuelObj = await dbGet('hmart/fuel')        || {};
       var chkObj  = await dbGet('hmart/checklists')  || {};
+
+      var orders     = fb.objToArr(ordObj).filter(function(o)  { return inRange(o.date); });
+      var runs       = fb.objToArr(runObj).filter(function(ru) { return inRange(ru.date); });
+      var fuels      = fb.objToArr(fuelObj).filter(function(f) { return inRange(f.date); });
+      var checklists = fb.objToArr(chkObj).filter(function(c)  { return inRange(c.date); });
+
+      // Also check archive for past dates
+      var archiveObj = await dbGet('hmart/archive') || {};
+      Object.keys(archiveObj).forEach(function(archDate) {
+        if(!inRange(archDate)) return;
+        var arch = archiveObj[archDate];
+        if(arch.orders) {
+          var archOrders = fb.objToArr(arch.orders);
+          archOrders.forEach(function(o) {
+            // Only add if not already in live data
+            if(!orders.find(function(x) { return x._fbKey === o._fbKey; })) {
+              orders.push(o);
+            }
+          });
+        }
+        if(arch.runs) {
+          var archRuns = fb.objToArr(arch.runs);
+          archRuns.forEach(function(ru) {
+            if(!runs.find(function(x) { return x._fbKey === ru._fbKey; })) {
+              runs.push(ru);
+            }
+          });
+        }
+        if(arch.fuel) {
+          var archFuels = fb.objToArr(arch.fuel);
+          archFuels.forEach(function(f) {
+            if(!fuels.find(function(x) { return x._fbKey === f._fbKey; })) {
+              fuels.push(f);
+            }
+          });
+        }
+      });
+
       return {
         startDate: start, endDate: end,
-        orders:     fb.objToArr(ordObj).filter(function(o)  { return inRange(o.date); }),
-        runs:       fb.objToArr(runObj).filter(function(ru) { return inRange(ru.date); }),
-        fuels:      fb.objToArr(fuelObj).filter(function(f) { return inRange(f.date); }),
-        checklists: fb.objToArr(chkObj).filter(function(c)  { return inRange(c.date); }),
+        orders: orders, runs: runs, fuels: fuels, checklists: checklists,
         summary: {}
       };
     }
@@ -577,7 +614,7 @@ async function apiPost(action, data, _bypassQueue) {
       return { success: true };
     }
 
-    // ── clearTodayCompleted ────────────────────────────────
+    // ── clearTodayCompleted (legacy) ────────────────────────
     if(action === 'clearTodayCompleted') {
       var ordObj2 = await dbGet('hmart/orders') || {};
       var runObj2 = await dbGet('hmart/runs')   || {};
@@ -592,18 +629,120 @@ async function apiPost(action, data, _bypassQueue) {
       return { success: true };
     }
 
-    // ── exportToCSV ────────────────────────────────────────
+    // ── resetOrders — archive then delete today's orders ───
+    if(action === 'resetOrders') {
+      var ordObj = await dbGet('hmart/orders') || {};
+      var tasks = [];
+      var count = 0;
+      fb.objToArr(ordObj).forEach(function(o) {
+        if(o.date === today) {
+          // Archive first, then delete
+          tasks.push(
+            dbSet('hmart/archive/' + today + '/orders/' + o._fbKey, o)
+              .then(function() { return dbRemove('hmart/orders/' + o._fbKey); })
+          );
+          count++;
+        }
+      });
+      await Promise.all(tasks);
+      // Save archive metadata
+      await dbSet('hmart/archive/' + today + '/meta', {
+        date: today, resetTime: now, type: 'orders-only', ordersArchived: count
+      });
+      return { success: true, count: count };
+    }
+
+    // ── resetAllToday — archive then delete orders + non-emergency runs ─
+    if(action === 'resetAllToday') {
+      var ordObj = await dbGet('hmart/orders') || {};
+      var runObj = await dbGet('hmart/runs')   || {};
+      var fuelObj = await dbGet('hmart/fuel')  || {};
+      var chkObj  = await dbGet('hmart/checklists') || {};
+      var tasks = [];
+      var ordersDeleted = 0;
+      var runsDeleted   = 0;
+
+      // Archive all today's orders
+      fb.objToArr(ordObj).forEach(function(o) {
+        if(o.date === today) {
+          tasks.push(
+            dbSet('hmart/archive/' + today + '/orders/' + o._fbKey, o)
+              .then(function() { return dbRemove('hmart/orders/' + o._fbKey); })
+          );
+          ordersDeleted++;
+        }
+      });
+
+      // Archive + delete non-emergency runs
+      fb.objToArr(runObj).forEach(function(ru) {
+        if(ru.date === today) {
+          var isEmerg = ru.destination && ru.destination.indexOf('🚨') === 0;
+          // Always archive emergency runs too
+          tasks.push(dbSet('hmart/archive/' + today + '/runs/' + ru._fbKey, ru));
+          if(!isEmerg) {
+            tasks.push(dbRemove('hmart/runs/' + ru._fbKey));
+            runsDeleted++;
+          }
+        }
+      });
+
+      // Archive fuel and checklists (keep in original location too)
+      fb.objToArr(fuelObj).forEach(function(f) {
+        if(f.date === today) {
+          tasks.push(dbSet('hmart/archive/' + today + '/fuel/' + f._fbKey, f));
+        }
+      });
+      fb.objToArr(chkObj).forEach(function(c) {
+        if(c.date === today) {
+          tasks.push(dbSet('hmart/archive/' + today + '/checklists/' + c._fbKey, c));
+        }
+      });
+
+      await Promise.all(tasks);
+
+      // Save archive metadata
+      await dbSet('hmart/archive/' + today + '/meta', {
+        date: today, resetTime: now, type: 'full-reset',
+        ordersArchived: ordersDeleted, runsArchived: runsDeleted
+      });
+
+      return { success: true, ordersDeleted: ordersDeleted, runsDeleted: runsDeleted };
+    }
+
+    // ── exportToCSV — includes today + archive ─────────────
     if(action === 'exportToCSV') {
       var ordObj3 = await dbGet('hmart/orders') || {};
       var runObj3 = await dbGet('hmart/runs')   || {};
-      var rows = [['Date','Driver','Vehicle','Dep KM','Arr KM','Distance','Status']];
-      fb.objToArr(runObj3).forEach(function(ru) {
-        rows.push([ru.date,ru.driver,ru.vehicle,ru.depKm,ru.arrKm,ru.distKm,ru.status]);
+      var archObj = await dbGet('hmart/archive') || {};
+
+      // Collect all runs and orders (live + archive)
+      var allRuns   = fb.objToArr(runObj3);
+      var allOrders = fb.objToArr(ordObj3);
+
+      Object.keys(archObj).forEach(function(archDate) {
+        var arch = archObj[archDate];
+        if(arch.orders) fb.objToArr(arch.orders).forEach(function(o)  { allOrders.push(o); });
+        if(arch.runs)   fb.objToArr(arch.runs).forEach(function(ru)   { allRuns.push(ru); });
       });
-      rows.push([]); rows.push(['ORDER ID','Date','Business','Invoice','Driver','Payment','Change','Amount','Status','Time']);
-      fb.objToArr(ordObj3).forEach(function(o) {
-        rows.push([o._fbKey,o.date,o.businessName,o.invoiceNum,o.driver,o.payment,o.change,o.billAmount,o.status,o.completeTime]);
+
+      // Sort by date
+      allRuns.sort(function(a,b)   { return (a.date||'') < (b.date||'') ? 1 : -1; });
+      allOrders.sort(function(a,b) { return (a.date||'') < (b.date||'') ? 1 : -1; });
+
+      var rows = [['=== H mart Delivery Log ===','Generated: ' + new Date().toLocaleString()]];
+      rows.push([]);
+      rows.push(['--- RUNS ---']);
+      rows.push(['Date','Driver','Vehicle','Dep KM','Arr KM','Distance','Dep Time','Arr Time','Destination','Status']);
+      allRuns.forEach(function(ru) {
+        rows.push([ru.date,ru.driver,ru.vehicle,ru.depKm,ru.arrKm,ru.distKm,ru.depTime,ru.arrTime,ru.destination||'',ru.status]);
       });
+      rows.push([]);
+      rows.push(['--- ORDERS ---']);
+      rows.push(['Date','ORDER ID','Business','Invoice','Driver','Payment','Bill Amount','Change','Status','Complete Time','Notes']);
+      allOrders.forEach(function(o) {
+        rows.push([o.date,o._fbKey,o.businessName,o.invoiceNum||'',o.driver||'',o.payment,o.billAmount||'',o.change||'',o.status,o.completeTime||'',o.notes||'']);
+      });
+
       var csv = rows.map(function(row) {
         return row.map(function(c) { return '"'+String(c||'').replace(/"/g,'""')+'"'; }).join(',');
       }).join('\n');
@@ -933,7 +1072,7 @@ function showNetworkStatus(msg, color) {
     <!-- ATTENDANCE TAB -->
     <div id="tab-attendance" class="off-screen">
       <div id="toast-att" class="toast"></div>
-      <div style="display:grid;grid-template-columns:400px 1fr;gap:20px">
+      <div style="display:grid;grid-template-columns:560px 1fr;gap:20px">
         <div>
           <div class="off-card">
             <div class="card-title">Driver Schedules</div>
@@ -1122,10 +1261,48 @@ function showNetworkStatus(msg, color) {
           <input type="text" id="store-name-input" class="admin-input" placeholder="e.g. H mart" value="H mart">
           <button class="btn-admin-save" onclick="saveStoreName()">Save Store Name</button>
         </div>
+
+        <!-- END OF DAY -->
+        <div class="admin-card" style="border:2px solid #1F4E79">
+          <div class="admin-title" style="color:#1F4E79">📋 End of Day — Daily Close</div>
+          <div style="font-size:13px;color:#64748B;margin-bottom:14px">
+            마감 순서: <strong>① 보고서 확인</strong> → <strong>② Excel 저장</strong> → <strong>③ 데이터 리셋</strong>
+          </div>
+
+          <!-- Step 1: Quick summary -->
+          <div id="eod-summary" style="background:#F8FAFC;border-radius:8px;padding:12px;margin-bottom:12px;font-size:13px">
+            <button onclick="loadEodSummary()" style="width:100%;padding:10px;background:#EFF6FF;border:1.5px solid #BFDBFE;border-radius:7px;color:#1F4E79;font-size:13px;font-weight:600;cursor:pointer">① 오늘 현황 확인</button>
+            <div id="eod-summary-content" style="margin-top:10px;display:none"></div>
+          </div>
+
+          <!-- Step 2: Export Excel -->
+          <div style="margin-bottom:12px">
+            <button onclick="exportExcel()" id="btn-export-excel" style="width:100%;padding:12px;background:#059669;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">② Excel 파일로 저장 (.xlsx)</button>
+            <div style="font-size:11px;color:#64748B;margin-top:4px;text-align:center">오더, 런, 연료, 체크리스트 포함</div>
+          </div>
+
+          <!-- Step 3: Reset -->
+          <div style="border-top:1px solid #E2E8F0;padding-top:12px">
+            <div style="font-size:12px;color:#64748B;margin-bottom:8px">
+              ③ 데이터 리셋 — <strong>이머전시 운행은 유지됩니다</strong>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <button onclick="resetTodayOrders()" style="padding:11px;font-size:13px;font-weight:600;background:#FEE2E2;color:#DC2626;border:1px solid #FCA5A5;border-radius:8px;cursor:pointer">오더만 리셋</button>
+              <button onclick="resetAllToday()" style="padding:11px;font-size:13px;font-weight:600;background:#DC2626;color:#fff;border:none;border-radius:8px;cursor:pointer">전체 리셋 (오더+런)</button>
+            </div>
+            <div style="margin-top:8px;background:#FEF3C7;border-radius:6px;padding:8px 10px;font-size:11px;color:#92400E">
+              ⏰ 자동 리셋: 매일 <strong>오후 10:00</strong>에 자동으로 전체 리셋됩니다
+              <span id="auto-reset-countdown" style="font-weight:700;margin-left:4px"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Reset log -->
         <div class="admin-card">
-          <div class="admin-title">Data Management</div>
-          <div style="font-size:13px;color:#64748B;margin-bottom:12px">Clear today's completed data</div>
-          <button onclick="clearTodayData()" style="width:100%;padding:12px;font-size:14px;font-weight:600;background:#FEE2E2;color:#DC2626;border:1px solid #FCA5A5;border-radius:8px;cursor:pointer">Clear Today's Completed Data</button>
+          <div class="admin-title">Reset History</div>
+          <div id="reset-log" style="font-size:12px;color:#64748B">
+            <div class="empty" style="font-size:12px">No resets today</div>
+          </div>
         </div>
       </div>
     </div>
@@ -2169,19 +2346,174 @@ async function loadFuel() {
 }
 
 // ---- EXPORT ----
+// ---- EXPORT EXCEL ----
 async function exportCSV() {
-  var btn=document.querySelector('.btn-export');
-  btn.textContent='...';btn.disabled=true;
-  try {
-    var r=await apiPost('exportToCSV',{});
-    btn.textContent='Export';btn.disabled=false;
-    if(r&&r.csv){
-      var blob=new Blob(['\uFEFF'+r.csv],{type:'text/csv;charset=utf-8'});
-      var url=URL.createObjectURL(blob);
-      var a=document.createElement('a');a.href=url;a.download='delivery_log_'+new Date().toISOString().slice(0,10)+'.csv';a.click();URL.revokeObjectURL(url);
-    }
-  } catch(e){btn.textContent='Export';btn.disabled=false;}
+  // Legacy - now calls exportExcel
+  exportExcel();
 }
+
+async function exportExcel() {
+  var btn = document.getElementById('btn-export-excel') || document.querySelector('.btn-export');
+  if(btn) { btn.textContent = '⏳ 준비중...'; btn.disabled = true; }
+  try {
+    var r = await apiPost('exportToCSV', {});
+    if(btn) { btn.textContent = '② Excel 파일로 저장 (.xlsx)'; btn.disabled = false; }
+    if(r && r.csv) {
+      // Download as CSV (opens in Excel)
+      var today = new Date().toLocaleDateString('en-CA');
+      var blob = new Blob(['\uFEFF' + r.csv], { type: 'text/csv;charset=utf-8' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'hmart_daily_report_' + today + '.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+      toast('toast-admin', 'Excel 파일 저장 완료!', true);
+      // Log it
+      addResetLog('📥 Excel 내보내기 완료 — ' + today);
+    }
+  } catch(e) {
+    if(btn) { btn.textContent = '② Excel 파일로 저장 (.xlsx)'; btn.disabled = false; }
+    toast('toast-admin', 'Export 실패: ' + e.message, false);
+  }
+}
+
+// ---- EOD SUMMARY ----
+async function loadEodSummary() {
+  var el = document.getElementById('eod-summary-content');
+  if(!el) return;
+  el.style.display = 'block';
+  el.innerHTML = '<div style="text-align:center;color:#64748B">불러오는 중...</div>';
+  try {
+    var today = window._fb ? window._fb.todayStr() : new Date().toLocaleDateString('en-CA');
+    var data = await apiGet('getOfficeData');
+    var orders = (data && data.orders) || [];
+    var runs   = (data && data.runs)   || [];
+    var compOrders = orders.filter(function(o) { return o.status === 'COMPLETED'; });
+    var pendOrders = orders.filter(function(o) { return o.status === 'PENDING'; });
+    var compRuns   = runs.filter(function(r) { return r.status === 'COMPLETED'; });
+    var activeRuns = runs.filter(function(r) { return r.status === 'IN PROGRESS'; });
+    var emergRuns  = runs.filter(function(r) { return r.destination && r.destination.indexOf('🚨') === 0; });
+    var totalKm    = compRuns.reduce(function(s,r) { return s + (parseFloat(r.distKm)||0); }, 0);
+    var totalBill  = compOrders.reduce(function(s,o) { return s + (parseFloat(o.billAmount)||0); }, 0);
+
+    var statusColor = (pendOrders.length > 0 || activeRuns.length > 0) ? '#F59E0B' : '#059669';
+    var statusMsg   = (pendOrders.length > 0 || activeRuns.length > 0) ?
+      '⚠ 미완료 항목 있음 — 리셋 전 확인하세요' : '✅ 모든 배달 완료';
+
+    el.innerHTML =
+      '<div style="background:' + statusColor + ';color:#fff;border-radius:7px;padding:8px 12px;font-size:13px;font-weight:700;margin-bottom:10px">' + statusMsg + '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
+        '<div style="background:#F0FDF4;border-radius:7px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:700;color:#059669">' + compOrders.length + '/' + orders.length + '</div><div style="font-size:11px;color:#64748B">오더 완료</div></div>' +
+        '<div style="background:#EFF6FF;border-radius:7px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:700;color:#1F4E79">' + compRuns.length + '/' + runs.length + '</div><div style="font-size:11px;color:#64748B">런 완료</div></div>' +
+        '<div style="background:#F8FAFC;border-radius:7px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:700;color:#374151">' + Math.round(totalKm*10)/10 + ' km</div><div style="font-size:11px;color:#64748B">총 거리</div></div>' +
+        '<div style="background:#F0FDF4;border-radius:7px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:700;color:#059669">P' + Math.round(totalBill).toLocaleString() + '</div><div style="font-size:11px;color:#64748B">총 매출</div></div>' +
+      '</div>' +
+      (pendOrders.length ? '<div style="background:#FEF3C7;border-radius:6px;padding:8px;font-size:12px;color:#92400E;margin-bottom:6px">⏳ 미완료 오더 ' + pendOrders.length + '건: ' + pendOrders.map(function(o){return o.businessName;}).join(', ') + '</div>' : '') +
+      (activeRuns.length ? '<div style="background:#EFF6FF;border-radius:6px;padding:8px;font-size:12px;color:#1F4E79;margin-bottom:6px">🚚 진행중 런 ' + activeRuns.length + '건 (리셋해도 유지됨)</div>' : '') +
+      (emergRuns.length ? '<div style="background:#FFF7ED;border-radius:6px;padding:8px;font-size:12px;color:#92400E">🚨 이머전시 런 ' + emergRuns.length + '건 — 리셋 후에도 보존됩니다</div>' : '');
+  } catch(e) {
+    el.innerHTML = '<div style="color:#DC2626;font-size:12px">오류: ' + e.message + '</div>';
+  }
+}
+
+// ---- RESET FUNCTIONS ----
+async function resetTodayOrders() {
+  if(!confirm('오늘 오더를 모두 삭제하시겠어요?\n(런/이머전시 데이터는 유지됩니다)')) return;
+  var btn = event.target;
+  btn.textContent = '리셋중...'; btn.disabled = true;
+  try {
+    var r = await apiPost('resetOrders', {});
+    btn.textContent = '오더만 리셋'; btn.disabled = false;
+    if(r && r.success) {
+      toast('toast-admin', '오더 리셋 완료!', true);
+      addResetLog('🔄 오더 리셋 — ' + r.count + '건 삭제');
+      document.getElementById('eod-summary-content').style.display = 'none';
+    }
+  } catch(e) { btn.textContent = '오더만 리셋'; btn.disabled = false; }
+}
+
+async function resetAllToday() {
+  if(!confirm('오늘 오더와 런을 모두 리셋하시겠어요?\n이머전시 운행은 유지됩니다.\n\n⚠ Excel 저장은 하셨나요?')) return;
+  var btn = event.target;
+  btn.textContent = '리셋중...'; btn.disabled = true;
+  try {
+    var r = await apiPost('resetAllToday', {});
+    btn.textContent = '전체 리셋 (오더+런)'; btn.disabled = false;
+    if(r && r.success) {
+      toast('toast-admin', '전체 리셋 완료! 오더 ' + r.ordersDeleted + '건, 런 ' + r.runsDeleted + '건 삭제', true);
+      addResetLog('🔴 전체 리셋 — 오더 ' + r.ordersDeleted + '건, 런 ' + r.runsDeleted + '건 (이머전시 제외)');
+      document.getElementById('eod-summary-content').style.display = 'none';
+      if(typeof loadOrders === 'function') loadOrders();
+    }
+  } catch(e) { btn.textContent = '전체 리셋 (오더+런)'; btn.disabled = false; }
+}
+
+async function clearTodayData() {
+  // Legacy function
+  resetAllToday();
+}
+
+function addResetLog(msg) {
+  var el = document.getElementById('reset-log');
+  if(!el) return;
+  var time = new Date().toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit'});
+  var item = '<div style="padding:6px 8px;border-bottom:1px solid #F1F5F9;display:flex;gap:8px;align-items:center">' +
+    '<span style="font-size:11px;color:#94A3B8;white-space:nowrap">' + time + '</span>' +
+    '<span style="font-size:12px;color:#374151">' + msg + '</span>' +
+  '</div>';
+  if(el.querySelector('.empty')) el.innerHTML = '';
+  el.innerHTML = item + el.innerHTML;
+}
+
+// ---- AUTO RESET at 22:00 ----
+(function() {
+  function checkAutoReset() {
+    var now = new Date();
+    var h = now.getHours();
+    var m = now.getMinutes();
+
+    // Update countdown display
+    var countEl = document.getElementById('auto-reset-countdown');
+    if(countEl) {
+      var resetHour = 22;
+      var minsUntil = (resetHour * 60) - (h * 60 + m);
+      if(minsUntil < 0) minsUntil += 24 * 60;
+      if(minsUntil <= 60) {
+        countEl.textContent = '(약 ' + minsUntil + '분 후)';
+        countEl.style.color = '#DC2626';
+      } else {
+        var hLeft = Math.floor(minsUntil / 60);
+        var mLeft = minsUntil % 60;
+        countEl.textContent = '(' + hLeft + '시간 ' + mLeft + '분 후)';
+        countEl.style.color = '#92400E';
+      }
+    }
+
+    // Trigger at exactly 22:00
+    if(h === 22 && m === 0) {
+      var lastReset = localStorage.getItem('hmart_last_auto_reset');
+      var today = new Date().toLocaleDateString('en-CA');
+      if(lastReset !== today) {
+        localStorage.setItem('hmart_last_auto_reset', today);
+        console.log('[Auto Reset] 오후 10시 자동 리셋 시작...');
+        apiPost('resetAllToday', {}).then(function(r) {
+          if(r && r.success) {
+            console.log('[Auto Reset] 완료 — 오더 ' + r.ordersDeleted + '건, 런 ' + r.runsDeleted + '건');
+            showNetworkStatus('🔄 오후 10시 자동 리셋 완료!', 'green');
+            addResetLog('⏰ 자동 리셋 — 오더 ' + r.ordersDeleted + '건, 런 ' + r.runsDeleted + '건');
+            if(typeof loadOrders === 'function') loadOrders();
+          }
+        });
+      }
+    }
+  }
+
+  // Check every minute
+  setInterval(checkAutoReset, 60000);
+  // Initial check
+  setTimeout(checkAutoReset, 2000);
+})();
 
 // ---- ADMIN ----
 function checkPin() {
@@ -2475,25 +2807,25 @@ function getDriverSched(driver) {
 function buildAttDriverTable() {
   var el = document.getElementById('att-driver-table');
   if(!el) return;
-  el.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:420px">' +
+  el.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:600px">' +
     '<thead><tr style="background:#F1F5F9">' +
-      '<th style="padding:6px 8px;text-align:left;border:1px solid #E2E8F0;font-weight:600">Driver</th>' +
-      '<th style="padding:6px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:600">Clock In</th>' +
-      '<th style="padding:6px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:600;background:#FEF3C7">Break</th>' +
-      '<th style="padding:6px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:600">Clock Out</th>' +
-      '<th style="padding:6px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:600;background:#FEE2E2">Day Off</th>' +
-      '<th style="padding:6px 8px;text-align:left;border:1px solid #E2E8F0;font-weight:600">Notes</th>' +
+      '<th style="padding:6px 10px;text-align:left;border:1px solid #E2E8F0;font-weight:600;min-width:90px">Driver</th>' +
+      '<th style="padding:6px 10px;text-align:center;border:1px solid #E2E8F0;font-weight:600;min-width:110px">Clock In</th>' +
+      '<th style="padding:6px 10px;text-align:center;border:1px solid #E2E8F0;font-weight:600;background:#FEF3C7;min-width:110px">Break</th>' +
+      '<th style="padding:6px 10px;text-align:center;border:1px solid #E2E8F0;font-weight:600;min-width:110px">Clock Out</th>' +
+      '<th style="padding:6px 10px;text-align:center;border:1px solid #E2E8F0;font-weight:600;background:#FEE2E2;min-width:70px">Day Off</th>' +
+      '<th style="padding:6px 10px;text-align:left;border:1px solid #E2E8F0;font-weight:600;min-width:120px">Notes</th>' +
     '</tr></thead><tbody>' +
     DRIVERS.map(function(d) {
       var sc = getDriverSched(d);
       var isDayOff = !!(sc.dayOff);
       return '<tr style="' + (isDayOff ? 'background:#FFF5F5;opacity:0.8' : '') + '">' +
-        '<td style="padding:5px 7px;border:1px solid #E2E8F0;font-weight:600;white-space:nowrap">' + d + '</td>' +
-        '<td style="padding:3px;border:1px solid #E2E8F0"><input type="time" id="sc-ci-' + d + '" value="' + (sc.clockin||'') + '" ' + (isDayOff?'disabled':'') + ' style="width:100%;border:none;font-size:12px;text-align:center;padding:4px;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
-        '<td style="padding:3px;border:1px solid #E2E8F0;background:#FFFBEB"><input type="time" id="sc-bs-' + d + '" value="' + (sc.breakStart||'') + '" ' + (isDayOff?'disabled':'') + ' style="width:100%;border:none;font-size:12px;text-align:center;padding:4px;background:transparent;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
-        '<td style="padding:3px;border:1px solid #E2E8F0"><input type="time" id="sc-co-' + d + '" value="' + (sc.clockout||'') + '" ' + (isDayOff?'disabled':'') + ' style="width:100%;border:none;font-size:12px;text-align:center;padding:4px;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
-        '<td style="padding:3px;border:1px solid #E2E8F0;background:#FFF5F5;text-align:center"><input type="checkbox" id="sc-do-' + d + '" ' + (isDayOff?'checked':'') + ' onchange="toggleDayOff(\'' + d + '\')" style="width:16px;height:16px;cursor:pointer"></td>' +
-        '<td style="padding:3px;border:1px solid #E2E8F0"><input type="text" id="sc-nt-' + d + '" value="' + (sc.notes||'') + '" placeholder="Notes..." style="width:100%;border:none;font-size:11px;padding:4px"></td>' +
+        '<td style="padding:6px 10px;border:1px solid #E2E8F0;font-weight:600;white-space:nowrap">' + d + '</td>' +
+        '<td style="padding:4px 6px;border:1px solid #E2E8F0"><input type="time" id="sc-ci-' + d + '" value="' + (sc.clockin||'') + '" ' + (isDayOff?'disabled':'') + ' style="width:100%;border:1px solid #E2E8F0;border-radius:5px;font-size:13px;text-align:center;padding:5px;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
+        '<td style="padding:4px 6px;border:1px solid #E2E8F0;background:#FFFBEB"><input type="time" id="sc-bs-' + d + '" value="' + (sc.breakStart||'') + '" ' + (isDayOff?'disabled':'') + ' style="width:100%;border:1px solid #FDE68A;border-radius:5px;font-size:13px;text-align:center;padding:5px;background:transparent;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
+        '<td style="padding:4px 6px;border:1px solid #E2E8F0"><input type="time" id="sc-co-' + d + '" value="' + (sc.clockout||'') + '" ' + (isDayOff?'disabled':'') + ' style="width:100%;border:1px solid #E2E8F0;border-radius:5px;font-size:13px;text-align:center;padding:5px;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
+        '<td style="padding:4px 6px;border:1px solid #E2E8F0;background:#FFF5F5;text-align:center"><input type="checkbox" id="sc-do-' + d + '" ' + (isDayOff?'checked':'') + ' onchange="toggleDayOff(\'' + d + '\')" style="width:18px;height:18px;cursor:pointer"></td>' +
+        '<td style="padding:4px 6px;border:1px solid #E2E8F0"><input type="text" id="sc-nt-' + d + '" value="' + (sc.notes||'') + '" placeholder="Notes..." style="width:100%;border:1px solid #E2E8F0;border-radius:5px;font-size:12px;padding:5px"></td>' +
       '</tr>';
     }).join('') +
     '</tbody></table></div>';
