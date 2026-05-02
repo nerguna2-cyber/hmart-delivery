@@ -1643,9 +1643,19 @@ async function drvSelectName() {
 
 async function drvLoadData() {
   var preview = document.getElementById('drv-orders-preview');
-  if(preview) preview.innerHTML = '<div style="text-align:center;padding:20px;color:#64748B"><div style="font-size:28px;animation:spin 1s linear infinite;display:inline-block">⟳</div><div style="margin-top:8px;font-size:13px">Loading orders...</div></div>';
+  var predep = document.getElementById('drv-predep');
+  // Show spinner in a separate loading div, not in the preview area
+  if(preview) preview.innerHTML = '';
+  var loadingDiv = document.getElementById('drv-loading-msg');
+  if(!loadingDiv) {
+    loadingDiv = document.createElement('div');
+    loadingDiv.id = 'drv-loading-msg';
+    if(predep) predep.insertBefore(loadingDiv, predep.firstChild);
+  }
+  if(loadingDiv) loadingDiv.innerHTML = '<div style="text-align:center;padding:20px;color:#64748B"><div style="font-size:28px;animation:spin 1s linear infinite;display:inline-block">⟳</div><div style="margin-top:8px;font-size:13px">Loading orders...</div></div>';
   try {
     var data = await apiGet('getOfficeData');
+    if(loadingDiv) loadingDiv.innerHTML = '';  // clear spinner
     var orders = (data && data.orders) || [];
     var runs   = (data && data.runs)   || [];
     drvOrders = orders;
@@ -1715,7 +1725,11 @@ async function drvLoadData() {
     } else if(!specialServerRun) {
       showPreDep(orders);
     }
-  } catch(e) { toast('drv-toast', 'Error loading data', false); }
+  } catch(e) {
+    var ld = document.getElementById('drv-loading-msg');
+    if(ld) ld.innerHTML = '';
+    toast('drv-toast', 'Error loading data', false);
+  }
 }
 
 function showPreDep(orders) {
