@@ -1619,14 +1619,26 @@ function buildOrderItemHTML(o, displayStatus) {
       (o.invoiceNum ? '<span style="font-size:12px;font-weight:600;color:#059669;background:#D1FAE5;padding:1px 7px;border-radius:4px">' + o.invoiceNum + '</span>' : '') +
       statusBadge +
       (isBiz ? '<span class="biz-tag">Business</span>' : '<span class="personal-tag">Personal</span>') +
-      payBadge(o.payment || 'Cash') +
       driverBadge +
       (o.flagged ? '<span style="background:#FEE2E2;color:#DC2626;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid #FCA5A5">⚠ Cancel ' + o.cancelCount + 'x</span>' : '') +
     '</div>' +
-    '<div style="display:flex;gap:10px;font-size:12px;color:#64748B;flex-wrap:wrap">' +
-      (o.billAmount ? '<span>Bill: P' + o.billAmount + '</span>' : '') +
-      (o.change && o.payment === 'Cash' ? '<span style="color:#059669;font-weight:600">Change: P' + o.change + '</span>' : '') +
-      (o.completeTime ? '<span>Done: ' + o.completeTime + '</span>' : '') +
+    // Quick-edit row: tap amount or payment to edit inline
+    '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px" id="qe-row-' + o.orderId + '">' +
+      // Payment badge — tap to cycle through options
+      '<span onclick="qeCyclePayment(\'' + o.orderId + '\')" title="Tap to change" style="cursor:pointer;user-select:none" id="qe-pay-badge-' + o.orderId + '">' + payBadge(o.payment || 'Cash') + '</span>' +
+      // Amount — tap to edit
+      (displayStatus !== 'COMPLETED' ?
+        '<span onclick="qeEditAmount(\'' + o.orderId + '\')" id="qe-amt-display-' + o.orderId + '" style="cursor:pointer;font-size:13px;font-weight:600;color:' + (o.billAmount ? '#1F4E79' : '#94A3B8') + ';border-bottom:1px dashed #CBD5E1;padding-bottom:1px" title="Tap to edit amount">' +
+          (o.billAmount ? 'P' + o.billAmount : '+ Add amount') +
+        '</span>' +
+        '<span id="qe-amt-input-' + o.orderId + '" style="display:none;align-items:center;gap:4px">' +
+          '<input type="number" id="qe-amt-val-' + o.orderId + '" value="' + (o.billAmount||'') + '" placeholder="Amount" inputmode="numeric" style="width:90px;padding:4px 7px;border:1px solid #93C5FD;border-radius:5px;font-size:13px" onkeydown="if(event.key===\'Enter\')qeSaveAmount(\'' + o.orderId + '\');if(event.key===\'Escape\')qeCancelAmount(\'' + o.orderId + '\')">' +
+          '<button onclick="qeSaveAmount(\'' + o.orderId + '\')" style="padding:4px 8px;background:#059669;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:13px">✓</button>' +
+          '<button onclick="qeCancelAmount(\'' + o.orderId + '\')" style="padding:4px 7px;background:#F1F5F9;color:#374151;border:none;border-radius:5px;cursor:pointer;font-size:13px">✕</button>' +
+        '</span>'
+      : '<span style="font-size:13px;font-weight:600;color:#1F4E79">' + (o.billAmount ? 'P' + o.billAmount : '') + '</span>') +
+      (o.change && o.payment === 'Cash' ? '<span style="font-size:12px;color:#059669;font-weight:600">Change: P' + o.change + '</span>' : '') +
+      (o.completeTime ? '<span style="font-size:12px;color:#64748B">Done: ' + o.completeTime + '</span>' : '') +
     '</div>' +
     (o.notes ? '<div style="background:#FEF3C7;border-radius:5px;padding:5px 8px;font-size:12px;color:#92400E;margin-top:6px;font-weight:500">' + o.notes + '</div>' : '');
 
@@ -1806,7 +1818,80 @@ async function saveOrderEdit(orderId) {
   }
 }
 
-// ---- AMOUNT EDIT ----
+// ---- QUICK EDIT — tap to change payment/amount ----
+var _qePayState = {}; // track current payment per order
+
+function qeCyclePayment(orderId) {
+  // Find current payment from the order data
+  var order = (allOrders || []).find(function(o) { return o.orderId === orderId; });
+  if(!order) return;
+  var cur = _qePayState[orderId] || order.payment || 'Cash';
+  var idx = PAYMENTS.indexOf(cur);
+  var next = PAYMENTS[(idx + 1) % PAYMENTS.length];
+  _qePayState[orderId] = next;
+
+  // Update badge visually immediately
+  var badgeEl = document.getElementById('qe-pay-badge-' + orderId);
+  if(badgeEl) badgeEl.innerHTML = payBadge(next);
+
+  // Auto-save payment change
+  var bill = order.billAmount ? parseFloat(order.billAmount) : 0;
+  var change = (next === 'Cash' && bill > 0) ? String(Math.round(roundUpK(bill) - bill)) : '';
+  apiPost('updateOrderFull', { orderId: orderId, payment: next, change: change }).then(function(r) {
+    if(r && r.success) {
+      // Update local order data
+      if(order) { order.payment = next; order.change = change; }
+      // Refresh change display
+      var row = document.getElementById('qe-row-' + orderId);
+      if(row) {
+        var chgEl = row.querySelector('[id^="qe-row"] span:last-child') ||
+                    Array.from(row.querySelectorAll('span')).find(function(s){ return s.textContent.indexOf('Change:') > -1; });
+        // Just reload to reflect all changes cleanly
+        loadOrders();
+      }
+    }
+  });
+}
+
+function qeEditAmount(orderId) {
+  var displayEl = document.getElementById('qe-amt-display-' + orderId);
+  var inputEl   = document.getElementById('qe-amt-input-'   + orderId);
+  if(!displayEl || !inputEl) return;
+  displayEl.style.display = 'none';
+  inputEl.style.display   = 'inline-flex';
+  var inp = document.getElementById('qe-amt-val-' + orderId);
+  if(inp) { inp.focus(); inp.select(); }
+}
+
+function qeCancelAmount(orderId) {
+  var displayEl = document.getElementById('qe-amt-display-' + orderId);
+  var inputEl   = document.getElementById('qe-amt-input-'   + orderId);
+  if(displayEl) displayEl.style.display = 'inline';
+  if(inputEl)   inputEl.style.display   = 'none';
+}
+
+async function qeSaveAmount(orderId) {
+  var inp = document.getElementById('qe-amt-val-' + orderId);
+  if(!inp) return;
+  var bill = inp.value.trim();
+  if(!bill || isNaN(parseFloat(bill))) { qeCancelAmount(orderId); return; }
+
+  var order = (allOrders || []).find(function(o) { return o.orderId === orderId; });
+  var pay   = (order && order.payment) || 'Cash';
+  var change = (pay === 'Cash') ? String(Math.round(roundUpK(parseFloat(bill)) - parseFloat(bill))) : '';
+
+  var saveBtn = inp.nextElementSibling;
+  if(saveBtn) { saveBtn.textContent = '⏳'; saveBtn.disabled = true; }
+
+  var r = await apiPost('updateOrderFull', { orderId: orderId, billAmount: bill, change: change, payment: pay });
+  if(r && r.success) {
+    toast('toast-ord', 'Amount saved!', true);
+    loadOrders();
+  } else {
+    if(saveBtn) { saveBtn.textContent = '✓'; saveBtn.disabled = false; }
+    qeCancelAmount(orderId);
+  }
+}
 function calcAmountChange(orderId) {
   var amtEl = document.getElementById('amt-' + orderId);
   var payEl = document.getElementById('pay-' + orderId);
