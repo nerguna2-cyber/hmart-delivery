@@ -260,9 +260,11 @@ console.log('[Firebase] Connected to:', FIREBASE_CONFIG.databaseURL);
 var _offlineQueue = [];
 var _isOnline = navigator.onLine;
 var _syncing  = false;
-var _fbReady  = false;
+// _fbReady is set to true by the Firebase init script above
+// We only initialize it here if it hasn't been set yet
+if(typeof window._fbReady === 'undefined') window._fbReady = false;
 
-window.addEventListener('fb-ready', function() { _fbReady = true; syncOfflineQueue(); });
+window.addEventListener('fb-ready', function() { window._fbReady = true; syncOfflineQueue(); });
 window.addEventListener('online',   function() { _isOnline = true;  showNetworkStatus('Back online! Syncing...', 'green'); syncOfflineQueue(); });
 window.addEventListener('offline',  function() { _isOnline = false; showNetworkStatus('No signal — saving locally', 'red'); });
 
@@ -277,7 +279,7 @@ window.addEventListener('offline',  function() { _isOnline = false; showNetworkS
 function saveQueue() { try { localStorage.setItem('hmart_queue', JSON.stringify(_offlineQueue)); } catch(e) {} }
 
 async function syncOfflineQueue() {
-  if(_syncing || !_fbReady || !_isOnline || !_offlineQueue.length) return;
+  if(_syncing || !window._fbReady || !_isOnline || !_offlineQueue.length) return;
   _syncing = true;
   var synced = 0;
   while(_offlineQueue.length) {
@@ -2705,7 +2707,12 @@ setInterval(function(){
 },30000);
 
 addFastRow();
-loadOrders();
+// Wait for Firebase to be ready before loading data
+if(window._fbReady) {
+  loadOrders();
+} else {
+  window.addEventListener('fb-ready', function() { loadOrders(); }, {once: true});
+}
 
 // ---- SPECIAL RUN ----
 var selectedSpecialType = '';
