@@ -6,9 +6,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<title>H mart DEV</title>
-<link rel="manifest" href="/hmart-delivery/manifest.json">
-<meta name="theme-color" content="#1F4E79">
+<title>H mart</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F0F4F8;min-height:100vh;-webkit-text-size-adjust:100%}
@@ -200,166 +198,431 @@ html{width:100%;overflow-x:hidden}
 </head>
 <body>
 
-<!-- API URL -->
-<script>
-var API_URL = 'https://script.google.com/macros/s/AKfycbwdWEjLtNcEW1Z-_bj1q5hzTid5FK0eG8El7tbBlauIw0g5Di1nOhrxU_z6Oe1ZKy1h/exec';
+<!-- Firebase SDK -->
+<script type="module">
+// ============================================================
+// FIREBASE CONFIG — Replace with your project's config
+// ============================================================
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getDatabase, ref, get, set, push, update, remove, query, orderByChild, equalTo, limitToLast }
+  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
 
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyBKMUIoQboWo6RZx0IQS7zv2TGaSlbaH0o",
+  authDomain:        "hmart-delivery.firebaseapp.com",
+  databaseURL:       "https://hmart-delivery-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:         "hmart-delivery",
+  storageBucket:     "hmart-delivery.firebasestorage.app",
+  messagingSenderId: "437157381069",
+  appId:             "1:437157381069:web:5f294733e7e1a863853a84"
+};
+
+const app = initializeApp(FIREBASE_CONFIG);
+const db  = getDatabase(app);
+
+// ── Helpers ──────────────────────────────────────────────────
+function todayStr() {
+  return new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
+}
+function nowTimeStr() {
+  var d = new Date();
+  return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+}
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+}
+// Convert Firebase object {key:{...}} → sorted array
+function objToArr(obj, sortKey) {
+  if(!obj) return [];
+  var arr = Object.entries(obj).map(function([k,v]) { return Object.assign({ _fbKey: k }, v); });
+  if(sortKey) arr.sort(function(a,b) { return (a[sortKey]||'') > (b[sortKey]||'') ? 1 : -1; });
+  return arr;
+}
+
+// ── Expose db + helpers to window (for non-module scripts) ───
+window._fb = { db, ref, get, set, push, update, remove, query, orderByChild, equalTo, limitToLast,
+               todayStr, nowTimeStr, uid, objToArr };
+window.dispatchEvent(new Event('fb-ready'));
+</script>
+
+<script>
 // ============================================================
-// OFFLINE QUEUE + CACHE SYSTEM
+// OFFLINE QUEUE — identical interface, now uses Firebase
 // ============================================================
-var _jsonpId = 0;
-var _cache = {};
 var _offlineQueue = [];
 var _isOnline = navigator.onLine;
-var _syncing = false;
+var _syncing  = false;
+var _fbReady  = false;
 
-window.addEventListener('online', function() {
-  _isOnline = true;
-  showNetworkStatus('Back online! Syncing...', 'green');
-  syncOfflineQueue();
-});
-window.addEventListener('offline', function() {
-  _isOnline = false;
-  showNetworkStatus('No signal — saving locally', 'red');
-});
+window.addEventListener('fb-ready', function() { _fbReady = true; syncOfflineQueue(); });
+window.addEventListener('online',   function() { _isOnline = true;  showNetworkStatus('Back online! Syncing...', 'green'); syncOfflineQueue(); });
+window.addEventListener('offline',  function() { _isOnline = false; showNetworkStatus('No signal — saving locally', 'red'); });
 
 (function() {
   try {
     var q = localStorage.getItem('hmart_queue');
     if(q) _offlineQueue = JSON.parse(q);
-    if(_offlineQueue.length > 0) {
-      showNetworkStatus(_offlineQueue.length + ' pending action(s) — tap to sync', 'orange');
-    }
+    if(_offlineQueue.length) showNetworkStatus(_offlineQueue.length + ' pending action(s) — tap to sync', 'orange');
   } catch(e) { _offlineQueue = []; }
 })();
 
-function saveQueue() {
-  try { localStorage.setItem('hmart_queue', JSON.stringify(_offlineQueue)); } catch(e) {}
-}
+function saveQueue() { try { localStorage.setItem('hmart_queue', JSON.stringify(_offlineQueue)); } catch(e) {} }
 
 async function syncOfflineQueue() {
-  if(_syncing || _offlineQueue.length === 0) return;
+  if(_syncing || !_fbReady || !_isOnline || !_offlineQueue.length) return;
   _syncing = true;
   var synced = 0;
-  while(_offlineQueue.length > 0) {
+  while(_offlineQueue.length) {
     var item = _offlineQueue[0];
     try {
-      await apiPostDirect(item.action, item.data);
-      _offlineQueue.shift();
-      saveQueue();
-      synced++;
+      await apiPost(item.action, item.data, true); // true = bypass queue check
+      _offlineQueue.shift(); saveQueue(); synced++;
     } catch(e) { break; }
   }
   _syncing = false;
-  if(synced > 0) {
-    showNetworkStatus(synced + ' action(s) synced!', 'green');
-    if(curDriver) drvLoadData();
-  }
-  if(_offlineQueue.length === 0) {
-    try { localStorage.removeItem('hmart_queue'); } catch(e) {}
-  }
+  if(synced) { showNetworkStatus(synced + ' action(s) synced!', 'green'); if(typeof curDriver !== 'undefined' && curDriver) drvLoadData(); }
+  if(!_offlineQueue.length) { try { localStorage.removeItem('hmart_queue'); } catch(e) {} }
 }
 
-function apiGet(action, params, retries) {
-  params = params || {}; retries = retries === undefined ? 2 : retries;
-  var cacheKey = action + JSON.stringify(params);
-  return new Promise(function(resolve, reject) {
-    var attempt = 0;
-    function tryOnce() {
-      attempt++;
-      var cbName = '_cb_' + (++_jsonpId);
-      var url = API_URL + '?action=' + action + '&callback=' + cbName;
-      Object.keys(params).forEach(function(k) { url += '&' + k + '=' + encodeURIComponent(params[k]); });
-      var done = false;
-      var timer = setTimeout(function() {
-        if(done) return; done = true;
-        delete window[cbName];
-        if(attempt < retries) { setTimeout(tryOnce, 800); }
-        else {
-          if(_cache[cacheKey]) { showNetworkStatus('No signal — showing cached data', 'orange'); resolve(_cache[cacheKey]); }
-          else { reject(new Error('No signal')); }
-        }
-      }, 7000);
-      window[cbName] = function(data) {
-        if(done) return; done = true;
-        clearTimeout(timer); delete window[cbName];
-        _cache[cacheKey] = data;
-        resolve(data);
-      };
-      var s = document.createElement('script');
-      s.src = url;
-      s.onerror = function() {
-        if(done) return; done = true;
-        clearTimeout(timer); delete window[cbName];
-        if(s.parentNode) s.parentNode.removeChild(s);
-        if(attempt < retries) { setTimeout(tryOnce, 1000); }
-        else {
-          if(_cache[cacheKey]) { showNetworkStatus('No signal — showing cached data', 'orange'); resolve(_cache[cacheKey]); }
-          else { reject(new Error('No signal')); }
-        }
-      };
-      document.head.appendChild(s);
-    }
-    tryOnce();
-  });
-}
+// ============================================================
+// apiGet — reads from Firebase Realtime Database
+// ============================================================
+async function apiGet(action, params) {
+  if(!_fbReady) await new Promise(function(r) { window.addEventListener('fb-ready', r, {once:true}); });
+  var fb = window._fb;
+  var db = fb.db; var r = fb.ref; var g = fb.get;
+  var today = fb.todayStr();
 
-function apiPostDirect(action, data) {
-  return new Promise(function(resolve, reject) {
-    var cbName = '_cb_' + (++_jsonpId);
-    var encoded = encodeURIComponent(JSON.stringify(data));
-    var url = API_URL + '?action=' + action + '&callback=' + cbName + '&body=' + encoded;
-    var done = false;
-    var timer = setTimeout(function() {
-      if(done) return; done = true;
-      delete window[cbName];
-      reject(new Error('Timeout'));
-    }, 12000);
-    window[cbName] = function(result) {
-      if(done) return; done = true;
-      clearTimeout(timer); delete window[cbName];
-      resolve(result);
-    };
-    var s = document.createElement('script');
-    s.src = url;
-    s.onerror = function() {
-      if(done) return; done = true;
-      clearTimeout(timer); delete window[cbName];
-      if(s.parentNode) s.parentNode.removeChild(s);
-      reject(new Error('Network error'));
-    };
-    document.head.appendChild(s);
-  });
-}
-
-async function apiPost(action, data) {
-  if(!_isOnline) {
-    _offlineQueue.push({ action: action, data: data, ts: Date.now() });
-    saveQueue();
-    showNetworkStatus('Saved locally — will sync when online', 'orange');
-    return { success: true, offline: true };
-  }
   try {
-    var result = await apiPostDirect(action, data);
-    if(_offlineQueue.length > 0) syncOfflineQueue();
-    return result;
+    // ── getOfficeData ──────────────────────────────────────
+    if(action === 'getOfficeData') {
+      var [ordSnap, runSnap] = await Promise.all([
+        g(r(db, 'hmart/orders')),
+        g(r(db, 'hmart/runs'))
+      ]);
+      var ordObj = ordSnap.val() || {};
+      var runObj = runSnap.val() || {};
+      var orders = fb.objToArr(ordObj).filter(function(o) { return o.date === today; })
+        .map(function(o, i) {
+          return {
+            rowNum: i+1, orderId: o._fbKey,
+            date: o.date||'', businessName: o.businessName||'',
+            invoiceNum: o.invoiceNum||'', driver: o.driver||'',
+            change: o.change||'', status: o.status||'PENDING',
+            completeTime: o.completeTime||'', notes: o.notes||'',
+            payment: o.payment||'Cash', billAmount: o.billAmount||''
+          };
+        });
+      var runs = fb.objToArr(runObj).filter(function(r) { return r.date === today; })
+        .map(function(r) {
+          return {
+            driver: r.driver||'', coDriver: r.coDriver||'',
+            vehicle: r.vehicle||'', plate: r.plate||'',
+            destination: r.destination||'', depKm: r.depKm||'',
+            depTime: r.depTime||'', arrKm: r.arrKm||'',
+            arrTime: r.arrTime||'', distKm: r.distKm||'',
+            remarks: r.remarks||'', status: r.status||'',
+            orderIds: r.orderIds || [], _fbKey: r._fbKey
+          };
+        });
+      return { orders, runs };
+    }
+
+    // ── getTodayOrders ─────────────────────────────────────
+    if(action === 'getTodayOrders') {
+      var snap = await g(r(db, 'hmart/orders'));
+      return fb.objToArr(snap.val()).filter(function(o) { return o.date === today; })
+        .map(function(o, i) { return Object.assign({ rowNum: i+1, orderId: o._fbKey }, o); });
+    }
+
+    // ── getVehicleStatus ───────────────────────────────────
+    if(action === 'getVehicleStatus') {
+      var snap = await g(r(db, 'hmart/vehicles'));
+      return fb.objToArr(snap.val(), 'vehicle');
+    }
+
+    // ── getFuelLogs ────────────────────────────────────────
+    if(action === 'getFuelLogs') {
+      var snap = await g(fb.query(r(db,'hmart/fuel'), fb.limitToLast(30)));
+      return fb.objToArr(snap.val()).reverse();
+    }
+
+    // ── getAdminSettings ──────────────────────────────────
+    if(action === 'getAdminSettings') {
+      var [dSnap, vSnap] = await Promise.all([
+        g(r(db,'hmart/settings/drivers')),
+        g(r(db,'hmart/vehicles'))
+      ]);
+      return {
+        drivers:  dSnap.val() || ["ROMEL","ARNEL","MARK","EMAN","NIXON","AJ","VINCENT","BRAVOO","PRISCO"],
+        vehicles: fb.objToArr(vSnap.val(), 'vehicle')
+      };
+    }
+
+    // ── getDailyReport ─────────────────────────────────────
+    if(action === 'getDailyReport') {
+      var start = (params && params.startDate) || today;
+      var end   = (params && params.endDate)   || start;
+      function inRange(d) { return d >= start && d <= end; }
+      var [ordSnap, runSnap, fuelSnap, chkSnap] = await Promise.all([
+        g(r(db,'hmart/orders')),
+        g(r(db,'hmart/runs')),
+        g(r(db,'hmart/fuel')),
+        g(r(db,'hmart/checklists'))
+      ]);
+      var orders     = fb.objToArr(ordSnap.val()).filter(function(o) { return inRange(o.date); });
+      var runs       = fb.objToArr(runSnap.val()).filter(function(r) { return inRange(r.date); });
+      var fuels      = fb.objToArr(fuelSnap.val()).filter(function(f) { return inRange(f.date); });
+      var checklists = fb.objToArr(chkSnap.val()).filter(function(c) { return inRange(c.date); });
+      return { startDate: start, endDate: end, orders, runs, fuels, checklists, summary: {} };
+    }
+
+    console.warn('apiGet: unknown action', action);
+    return null;
   } catch(e) {
-    _offlineQueue.push({ action: action, data: data, ts: Date.now() });
+    console.error('apiGet error:', action, e);
+    showNetworkStatus('Error loading data', 'red');
+    return null;
+  }
+}
+
+// ============================================================
+// apiPost — writes to Firebase Realtime Database
+// ============================================================
+async function apiPost(action, data, _bypassQueue) {
+  if(!_isOnline && !_bypassQueue) {
+    _offlineQueue.push({ action, data, ts: Date.now() });
     saveQueue();
     showNetworkStatus('Saved locally — will sync when online', 'orange');
     return { success: true, offline: true };
   }
+  if(!_fbReady) await new Promise(function(r) { window.addEventListener('fb-ready', r, {once:true}); });
+  var fb = window._fb;
+  var db = fb.db; var r = fb.ref; var s = fb.set; var p = fb.push; var u = fb.update; var rm = fb.remove;
+  var today = fb.todayStr(); var now = fb.nowTimeStr(); var newId = fb.uid;
+
+  try {
+    // ── addOrders ──────────────────────────────────────────
+    if(action === 'addOrders') {
+      var count = 0;
+      for(var ord of data) {
+        var key = 'ORD-' + newId();
+        await s(r(db, 'hmart/orders/' + key), {
+          date: today, businessName: ord.businessName||'',
+          invoiceNum: ord.invoiceNum||'', driver: ord.driver||'',
+          billAmount: ord.billAmount||'', change: ord.change||'',
+          payment: ord.payment||'Cash', notes: ord.notes||'',
+          status: 'PENDING', completeTime: ''
+        });
+        count++;
+      }
+      return { success: true, count };
+    }
+
+    // ── assignDriver ───────────────────────────────────────
+    if(action === 'assignDriver') {
+      await u(r(db, 'hmart/orders/' + data.orderId), { driver: data.driver });
+      return { success: true };
+    }
+
+    // ── deleteOrder ────────────────────────────────────────
+    if(action === 'deleteOrder') {
+      await rm(r(db, 'hmart/orders/' + data.orderId));
+      return { success: true };
+    }
+
+    // ── setOrderInProgress ─────────────────────────────────
+    if(action === 'setOrderInProgress') {
+      await u(r(db, 'hmart/orders/' + data.orderId), { status: 'IN PROGRESS' });
+      return { success: true };
+    }
+
+    // ── cancelOrderProgress ────────────────────────────────
+    if(action === 'cancelOrderProgress') {
+      await u(r(db, 'hmart/orders/' + data.orderId), { status: 'PENDING' });
+      return { success: true };
+    }
+
+    // ── completeOrder ──────────────────────────────────────
+    if(action === 'completeOrder') {
+      await u(r(db, 'hmart/orders/' + data.orderId), {
+        status: 'COMPLETED', completeTime: now,
+        change: data.change || ''
+      });
+      return { success: true };
+    }
+
+    // ── updateOrderAmount ──────────────────────────────────
+    if(action === 'updateOrderAmount') {
+      var upd = {};
+      if(data.billAmount !== undefined) upd.billAmount = data.billAmount;
+      if(data.change     !== undefined) upd.change     = data.change;
+      if(data.payment    !== undefined) upd.payment    = data.payment;
+      await u(r(db, 'hmart/orders/' + data.orderId), upd);
+      return { success: true };
+    }
+
+    // ── submitDeparture ────────────────────────────────────
+    if(action === 'submitDeparture') {
+      var runKey = 'RUN-' + newId();
+      await s(r(db, 'hmart/runs/' + runKey), {
+        date: today, depTime: now,
+        driver: data.driver||'', coDriver: data.coDriver||'',
+        vehicle: data.vehicle||'', plate: data.plate||'',
+        destination: data.destination||'', depKm: data.depKm||0,
+        arrKm: '', arrTime: '', distKm: 0, remarks: '',
+        status: 'IN PROGRESS',
+        orderIds: data.orderIds || []
+      });
+      // Update vehicle last KM
+      if(data.plate) await u(r(db,'hmart/vehicles/' + data.plate.replace(/\s/g,'_')), { lastKm: data.depKm||0 });
+      return { success: true, runKey };
+    }
+
+    // ── submitArrival ──────────────────────────────────────
+    if(action === 'submitArrival') {
+      // Find active run for this driver today
+      var snap = await fb.get(r(db,'hmart/runs'));
+      var runs = fb.objToArr(snap.val());
+      var activeRun = runs.find(function(ru) {
+        return ru.date === today && ru.driver === data.driver && ru.status === 'IN PROGRESS';
+      });
+      if(!activeRun) return { success: false, message: 'No active run found' };
+      var dep = parseFloat(activeRun.depKm) || 0;
+      var arr = parseFloat(data.arrKm) || 0;
+      var dist = arr > dep ? Math.round((arr - dep)*10)/10 : 0;
+      await u(r(db,'hmart/runs/' + activeRun._fbKey), {
+        arrKm: arr, arrTime: now, distKm: dist,
+        remarks: data.remarks||'', status: 'COMPLETED'
+      });
+      if(activeRun.plate) await u(r(db,'hmart/vehicles/' + activeRun.plate.replace(/\s/g,'_')), { lastKm: arr });
+      return { success: true, distance: dist };
+    }
+
+    // ── addFuelLog ─────────────────────────────────────────
+    if(action === 'addFuelLog') {
+      await p(r(db,'hmart/fuel'), {
+        date: today, vehicle: data.vehicle||'',
+        driver: data.driver||'', liters: data.liters||0,
+        amount: data.amount||0, odometer: data.odometer||'',
+        station: data.station||''
+      });
+      return { success: true };
+    }
+
+    // ── submitChecklist ────────────────────────────────────
+    if(action === 'submitChecklist') {
+      await p(r(db,'hmart/checklists'), {
+        date: today, time: now,
+        driver: data.driver||'', vehicle: data.vehicle||'',
+        battery: data.Battery||'OK', lights: data.Lights||'OK',
+        oil: data.Oil||'OK', water: data.Water||'OK',
+        brakes: data.Brakes||'OK', tires: data.Tires||'OK',
+        cleaning: data.Cleaning||'OK',
+        shift: data.shift||'AM', remarks: data.remarks||''
+      });
+      return { success: true };
+    }
+
+    // ── updateVehicleStatus ────────────────────────────────
+    if(action === 'updateVehicleStatus') {
+      var vKey = data.plate.replace(/\s/g,'_');
+      await u(r(db,'hmart/vehicles/' + vKey), { status: data.status, notes: data.notes||'' });
+      return { success: true };
+    }
+
+    // ── addVehicleToSheet ──────────────────────────────────
+    if(action === 'addVehicleToSheet') {
+      var vKey2 = data.plate.replace(/\s/g,'_');
+      await s(r(db,'hmart/vehicles/' + vKey2), {
+        vehicle: data.vehicle||'', plate: data.plate||'',
+        status: data.status||'Active', lastKm: '', notes: ''
+      });
+      return { success: true };
+    }
+
+    // ── removeVehicleFromSheet ─────────────────────────────
+    if(action === 'removeVehicleFromSheet') {
+      var vKey3 = data.plate.replace(/\s/g,'_');
+      await rm(r(db,'hmart/vehicles/' + vKey3));
+      return { success: true };
+    }
+
+    // ── saveAdminSettings ──────────────────────────────────
+    if(action === 'saveAdminSettings') {
+      if(data.type === 'drivers') {
+        await s(r(db,'hmart/settings/drivers'), data.data);
+      } else if(data.type === 'storeName') {
+        await s(r(db,'hmart/settings/storeName'), data.data);
+      }
+      return { success: true };
+    }
+
+    // ── clearTodayCompleted ────────────────────────────────
+    if(action === 'clearTodayCompleted') {
+      var [oSnap, rSnap] = await Promise.all([
+        fb.get(r(db,'hmart/orders')),
+        fb.get(r(db,'hmart/runs'))
+      ]);
+      var delTasks = [];
+      fb.objToArr(oSnap.val()).forEach(function(o) {
+        if(o.date === today && o.status === 'COMPLETED')
+          delTasks.push(rm(r(db,'hmart/orders/'+o._fbKey)));
+      });
+      fb.objToArr(rSnap.val()).forEach(function(ru) {
+        if(ru.date === today && ru.status === 'COMPLETED')
+          delTasks.push(rm(r(db,'hmart/runs/'+ru._fbKey)));
+      });
+      await Promise.all(delTasks);
+      return { success: true };
+    }
+
+    // ── exportToCSV ────────────────────────────────────────
+    if(action === 'exportToCSV') {
+      var [oSnap2, rSnap2] = await Promise.all([
+        fb.get(r(db,'hmart/orders')),
+        fb.get(r(db,'hmart/runs'))
+      ]);
+      var rows = [['Date','Driver','Vehicle','Dep KM','Arr KM','Distance','Status']];
+      fb.objToArr(rSnap2.val()).forEach(function(ru) {
+        rows.push([ru.date,ru.driver,ru.vehicle,ru.depKm,ru.arrKm,ru.distKm,ru.status]);
+      });
+      rows.push([]); rows.push(['ORDER ID','Date','Business','Invoice','Driver','Payment','Change','Amount','Status','Time']);
+      fb.objToArr(oSnap2.val()).forEach(function(o) {
+        rows.push([o._fbKey,o.date,o.businessName,o.invoiceNum,o.driver,o.payment,o.change,o.billAmount,o.status,o.completeTime]);
+      });
+      var csv = rows.map(function(row) {
+        return row.map(function(c) { return '"'+String(c||'').replace(/"/g,'""')+'"'; }).join(',');
+      }).join('\n');
+      return { success: true, csv };
+    }
+
+    console.warn('apiPost: unknown action', action);
+    return { success: false, message: 'Unknown action: ' + action };
+
+  } catch(e) {
+    console.error('apiPost error:', action, e);
+    if(!_bypassQueue) {
+      _offlineQueue.push({ action, data, ts: Date.now() });
+      saveQueue();
+      showNetworkStatus('Saved locally — will sync when online', 'orange');
+      return { success: true, offline: true };
+    }
+    return { success: false, message: e.message };
+  }
 }
 
+// ============================================================
+// UTILITIES (unchanged interface)
+// ============================================================
 function fmtTime(val) {
   if(!val) return '-';
   var s = String(val);
   if(/^\d{2}:\d{2}$/.test(s)) return s;
   try {
     var d = new Date(s);
-    if(!isNaN(d.getTime())) {
+    if(!isNaN(d.getTime()))
       return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
-    }
   } catch(e) {}
   return s;
 }
@@ -378,18 +641,6 @@ function showNetworkStatus(msg, color) {
 
 <!-- Network status bar -->
 <div id="network-status" style="display:none;position:fixed;top:0;left:0;right:0;background:#F59E0B;color:#fff;text-align:center;padding:8px;font-size:13px;font-weight:600;z-index:9999"></div>
-
-<!-- PWA Install Banner -->
-<div id="install-bar" style="display:none;position:fixed;bottom:0;left:0;right:0;background:#1F4E79;color:#fff;padding:12px 16px;z-index:9998;align-items:center;justify-content:space-between;gap:12px">
-  <div>
-    <div style="font-size:13px;font-weight:700">📱 홈 화면에 추가하기</div>
-    <div style="font-size:11px;opacity:0.8;margin-top:2px">오프라인에서도 사용 가능</div>
-  </div>
-  <div style="display:flex;gap:8px">
-    <button onclick="document.getElementById('install-bar').style.display='none'" style="padding:8px 14px;font-size:12px;background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:6px;cursor:pointer">나중에</button>
-    <button onclick="installApp()" style="padding:8px 14px;font-size:12px;font-weight:700;background:#fff;color:#1F4E79;border:none;border-radius:6px;cursor:pointer">설치</button>
-  </div>
-</div>
 
 <!-- MODE SELECT -->
 <div id="mode-select">
@@ -629,6 +880,11 @@ function showNetworkStatus(msg, color) {
               <button class="btn-blue-off" onclick="saveAllAssignments()" id="btn-save-all-assign" style="display:none">Save All</button>
               <button class="btn-sm-off" onclick="loadOrders()">Refresh</button>
             </div>
+          </div>
+          <div style="position:relative;margin-bottom:10px">
+            <input type="text" id="order-search" placeholder="Search business name, driver..." oninput="filterOrders()" style="width:100%;padding:9px 12px 9px 34px;border:1px solid #D1D5DB;border-radius:8px;font-size:13px;background:#fff">
+            <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:13px;pointer-events:none">🔍</span>
+            <button onclick="document.getElementById('order-search').value='';filterOrders()" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:#94A3B8;font-size:18px;cursor:pointer;line-height:1">×</button>
           </div>
           <div id="orders-list"><div class="empty">Loading...</div></div>
         </div>
@@ -1173,6 +1429,29 @@ function buildOrderItemHTML(o, displayStatus) {
     (o.notes ? '<div style="background:#FEF3C7;border-radius:5px;padding:5px 8px;font-size:12px;color:#92400E;margin-top:6px;font-weight:500">' + o.notes + '</div>' : '');
 
   if(displayStatus !== 'COMPLETED') {
+    // Amount edit row — show for PENDING orders without amount, or all non-completed
+    var hasAmount = !!(o.billAmount && parseFloat(o.billAmount) > 0);
+    var amountRow = '';
+    if(!hasAmount && displayStatus === 'PENDING') {
+      amountRow = '<div style="background:#FEF9C3;border:1px solid #FDE68A;border-radius:7px;padding:8px 10px;margin-top:8px">' +
+        '<div style="font-size:11px;font-weight:600;color:#92400E;margin-bottom:6px">💰 Amount not set — add when ready</div>' +
+        '<div style="display:flex;gap:6px;align-items:center">' +
+          '<input type="number" id="amt-' + o.orderId + '" placeholder="Bill amount P" inputmode="numeric" style="flex:1;padding:7px 10px;border:1px solid #FDE68A;border-radius:6px;font-size:13px;background:#fff" oninput="calcAmountChange(\'' + o.orderId + '\')">' +
+          '<select id="pay-' + o.orderId + '" style="padding:7px 8px;border:1px solid #FDE68A;border-radius:6px;font-size:12px;background:#fff" onchange="calcAmountChange(\'' + o.orderId + '\')">' +
+            PAYMENTS.map(function(p) { return '<option' + (o.payment===p?' selected':'') + '>' + p + '</option>'; }).join('') +
+          '</select>' +
+          '<button onclick="saveOrderAmount(\'' + o.orderId + '\',' + o.rowNum + ')" class="btn-blue-off" style="white-space:nowrap">Save</button>' +
+        '</div>' +
+        '<div id="chg-' + o.orderId + '" style="font-size:12px;color:#059669;font-weight:600;margin-top:4px;display:none"></div>' +
+      '</div>';
+    } else if(hasAmount && (displayStatus === 'PENDING' || displayStatus === 'ON THE WAY')) {
+      amountRow = '<div style="display:flex;gap:6px;margin-top:6px;align-items:center">' +
+        '<input type="number" id="amt-' + o.orderId + '" placeholder="Edit amount..." value="' + (o.billAmount||'') + '" inputmode="numeric" style="width:120px;padding:5px 8px;border:1px solid #E2E8F0;border-radius:5px;font-size:12px" oninput="calcAmountChange(\'' + o.orderId + '\')">' +
+        '<button onclick="saveOrderAmount(\'' + o.orderId + '\',' + o.rowNum + ')" style="padding:5px 10px;font-size:11px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:5px;color:#1F4E79;cursor:pointer">Update Amount</button>' +
+        '<div id="chg-' + o.orderId + '" style="font-size:12px;color:#059669;font-weight:600"></div>' +
+      '</div>';
+    }
+    html += amountRow;
     html += '<div style="display:flex;gap:6px;margin-top:8px;align-items:center">' +
       '<select id="ra-' + o.rowNum + '" style="flex:1;padding:6px 8px;font-size:12px;border:1px solid #D1D5DB;border-radius:5px">' +
         '<option value="">Reassign...</option>' +
@@ -1225,6 +1504,66 @@ async function delOrder(orderId) {
   if(!confirm('Delete this order?')) return;
   var r = await apiPost('deleteOrder', { orderId: orderId });
   if(r && r.success) { toast('toast-ord', 'Deleted', true); loadOrders(); }
+}
+
+// ---- AMOUNT EDIT ----
+function calcAmountChange(orderId) {
+  var amtEl = document.getElementById('amt-' + orderId);
+  var payEl = document.getElementById('pay-' + orderId);
+  var chgEl = document.getElementById('chg-' + orderId);
+  if(!amtEl || !chgEl) return;
+  var bill = parseFloat(amtEl.value) || 0;
+  var pay  = payEl ? payEl.value : 'Cash';
+  if(bill <= 0 || pay !== 'Cash') { chgEl.style.display = 'none'; chgEl.textContent = ''; return; }
+  var change = roundUpK(bill) - bill;
+  chgEl.textContent = 'Change: P' + Math.round(change) + ' (from P' + roundUpK(bill).toLocaleString() + ')';
+  chgEl.style.display = 'block';
+}
+
+async function saveOrderAmount(orderId, rowNum) {
+  var amtEl = document.getElementById('amt-' + orderId);
+  var payEl = document.getElementById('pay-' + orderId);
+  if(!amtEl) return;
+  var bill = amtEl.value.trim();
+  var pay  = payEl ? payEl.value : null;
+  if(!bill) { toast('toast-ord', 'Enter an amount', false); return; }
+  var change = '';
+  if(pay === 'Cash' || !pay) {
+    var b = parseFloat(bill);
+    if(b > 0) change = String(Math.round(roundUpK(b) - b));
+  }
+  var btn = amtEl.parentElement.querySelector('button[onclick*="saveOrderAmount"]');
+  if(btn) { btn.textContent = '...'; btn.disabled = true; }
+  var r = await apiPost('updateOrderAmount', { orderId: orderId, billAmount: bill, change: change, payment: pay });
+  if(btn) { btn.textContent = 'Save'; btn.disabled = false; }
+  if(r && r.success) { toast('toast-ord', 'Amount saved! Change: P' + change, true); loadOrders(); }
+  else toast('toast-ord', 'Error saving amount', false);
+}
+
+// ---- ORDER SEARCH / FILTER ----
+function filterOrders() {
+  var q = (document.getElementById('order-search').value || '').trim().toLowerCase();
+  if(!q) { renderOrders(); return; }
+  var filtered = (allOrders || []).filter(function(o) {
+    return (o.businessName||'').toLowerCase().indexOf(q) > -1 ||
+           (o.driver||'').toLowerCase().indexOf(q) > -1 ||
+           (o.invoiceNum||'').toLowerCase().indexOf(q) > -1 ||
+           (o.notes||'').toLowerCase().indexOf(q) > -1 ||
+           (o.payment||'').toLowerCase().indexOf(q) > -1;
+  });
+  if(!filtered.length) {
+    document.getElementById('orders-list').innerHTML = '<div class="empty">No orders matching "' + q + '"</div>';
+    return;
+  }
+  var html = '<div style="font-size:11px;color:#64748B;margin-bottom:8px">🔍 ' + filtered.length + ' result(s) for "' + q + '"</div>';
+  filtered.forEach(function(o) {
+    var displayStatus = o.status === 'PENDING' && _onTheWayIds[o.orderId] ? 'ON THE WAY' : o.status;
+    // Show delivery time info prominently for search results
+    var timeInfo = '';
+    if(o.completeTime) timeInfo = '<div style="background:#D1FAE5;border-radius:5px;padding:4px 8px;font-size:12px;color:#065F46;font-weight:600;margin-top:6px">✓ Delivered at <strong>' + o.completeTime + '</strong>' + (o.driver ? ' by ' + o.driver : '') + '</div>';
+    html += buildOrderItemHTML(o, displayStatus).replace('</div>', timeInfo + '</div>');
+  });
+  document.getElementById('orders-list').innerHTML = html;
 }
 
 // ---- DRIVER FLOW ----
@@ -1690,14 +2029,15 @@ async function loadLive() {
     DRIVERS.forEach(function(d) {
       var onRoad = activeDrivers.indexOf(d) > -1;
       var sched = (typeof getDriverSched === 'function') ? getDriverSched(d) : { breakStart:'12:00' };
+      var isDayOff = !!(sched.dayOff);
       var actualB = actualBreaks[d] || null;
       var bStart = actualB || sched.breakStart;
       var bsMins = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
-      var onBreak = !onRoad && bsMins > -1 && nowMins >= bsMins && nowMins < bsMins + 60;
-      var statusColor = onRoad ? '#1D4ED8' : onBreak ? '#F59E0B' : '#059669';
-      var statusText  = onRoad ? '🚚 On Road' : onBreak ? '☕ On Break' : '✓ Available';
+      var onBreak = !onRoad && !isDayOff && bsMins > -1 && nowMins >= bsMins && nowMins < bsMins + 60;
+      var statusColor = isDayOff ? '#DC2626' : onRoad ? '#1D4ED8' : onBreak ? '#F59E0B' : '#059669';
+      var statusText  = isDayOff ? '🏖 Day Off' : onRoad ? '🚚 On Road' : onBreak ? '☕ On Break' : '✓ Available';
       var activeRun   = onRoad ? active.find(function(r) { return r.driver === d; }) : null;
-      var asCoDriver = active.find(function(r) { return r.coDriver === d; });
+      var asCoDriver = !isDayOff && active.find(function(r) { return r.coDriver === d; });
       if(!onRoad && asCoDriver) {
         onRoad = true; statusColor = '#7C3AED'; statusText = '🚗 Co-Driver';
       }
@@ -2111,21 +2451,24 @@ function getDriverSched(driver) {
 function buildAttDriverTable() {
   var el = document.getElementById('att-driver-table');
   if(!el) return;
-  el.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:380px">' +
+  el.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:420px">' +
     '<thead><tr style="background:#F1F5F9">' +
       '<th style="padding:6px 8px;text-align:left;border:1px solid #E2E8F0;font-weight:600">Driver</th>' +
       '<th style="padding:6px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:600">Clock In</th>' +
       '<th style="padding:6px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:600;background:#FEF3C7">Break</th>' +
       '<th style="padding:6px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:600">Clock Out</th>' +
+      '<th style="padding:6px 8px;text-align:center;border:1px solid #E2E8F0;font-weight:600;background:#FEE2E2">Day Off</th>' +
       '<th style="padding:6px 8px;text-align:left;border:1px solid #E2E8F0;font-weight:600">Notes</th>' +
     '</tr></thead><tbody>' +
     DRIVERS.map(function(d) {
       var sc = getDriverSched(d);
-      return '<tr>' +
+      var isDayOff = !!(sc.dayOff);
+      return '<tr style="' + (isDayOff ? 'background:#FFF5F5;opacity:0.8' : '') + '">' +
         '<td style="padding:5px 7px;border:1px solid #E2E8F0;font-weight:600;white-space:nowrap">' + d + '</td>' +
-        '<td style="padding:3px;border:1px solid #E2E8F0"><input type="time" id="sc-ci-' + d + '" value="' + (sc.clockin||'') + '" style="width:100%;border:none;font-size:12px;text-align:center;padding:4px"></td>' +
-        '<td style="padding:3px;border:1px solid #E2E8F0;background:#FFFBEB"><input type="time" id="sc-bs-' + d + '" value="' + (sc.breakStart||'') + '" style="width:100%;border:none;font-size:12px;text-align:center;padding:4px;background:transparent"></td>' +
-        '<td style="padding:3px;border:1px solid #E2E8F0"><input type="time" id="sc-co-' + d + '" value="' + (sc.clockout||'') + '" style="width:100%;border:none;font-size:12px;text-align:center;padding:4px"></td>' +
+        '<td style="padding:3px;border:1px solid #E2E8F0"><input type="time" id="sc-ci-' + d + '" value="' + (sc.clockin||'') + '" ' + (isDayOff?'disabled':'') + ' style="width:100%;border:none;font-size:12px;text-align:center;padding:4px;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
+        '<td style="padding:3px;border:1px solid #E2E8F0;background:#FFFBEB"><input type="time" id="sc-bs-' + d + '" value="' + (sc.breakStart||'') + '" ' + (isDayOff?'disabled':'') + ' style="width:100%;border:none;font-size:12px;text-align:center;padding:4px;background:transparent;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
+        '<td style="padding:3px;border:1px solid #E2E8F0"><input type="time" id="sc-co-' + d + '" value="' + (sc.clockout||'') + '" ' + (isDayOff?'disabled':'') + ' style="width:100%;border:none;font-size:12px;text-align:center;padding:4px;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
+        '<td style="padding:3px;border:1px solid #E2E8F0;background:#FFF5F5;text-align:center"><input type="checkbox" id="sc-do-' + d + '" ' + (isDayOff?'checked':'') + ' onchange="toggleDayOff(\'' + d + '\')" style="width:16px;height:16px;cursor:pointer"></td>' +
         '<td style="padding:3px;border:1px solid #E2E8F0"><input type="text" id="sc-nt-' + d + '" value="' + (sc.notes||'') + '" placeholder="Notes..." style="width:100%;border:none;font-size:11px;padding:4px"></td>' +
       '</tr>';
     }).join('') +
@@ -2137,6 +2480,22 @@ function buildAttDriverTable() {
   }
 }
 
+function toggleDayOff(driver) {
+  var cb = document.getElementById('sc-do-' + driver);
+  if(!cb) return;
+  var isDayOff = cb.checked;
+  // Grey out time inputs
+  ['sc-ci-','sc-bs-','sc-co-'].forEach(function(prefix) {
+    var el = document.getElementById(prefix + driver);
+    if(!el) return;
+    el.disabled = isDayOff;
+    el.style.opacity = isDayOff ? '0.4' : '1';
+  });
+  // Update row background
+  var row = cb.closest('tr');
+  if(row) row.style.background = isDayOff ? '#FFF5F5' : '';
+}
+
 function saveAllOverrides() {
   var changed = 0;
   DRIVERS.forEach(function(d) {
@@ -2144,8 +2503,15 @@ function saveAllOverrides() {
     var bs = document.getElementById('sc-bs-' + d);
     var co = document.getElementById('sc-co-' + d);
     var nt = document.getElementById('sc-nt-' + d);
+    var doCb = document.getElementById('sc-do-' + d);
     if(!ci) return;
-    driverSchedules[d] = { clockin: ci.value||'', breakStart: bs?bs.value||'':'', clockout: co?co.value||'':'', notes: nt?nt.value||'':'' };
+    driverSchedules[d] = {
+      clockin:    ci.value || '',
+      breakStart: bs ? bs.value || '' : '',
+      clockout:   co ? co.value || '' : '',
+      notes:      nt ? nt.value || '' : '',
+      dayOff:     doCb ? doCb.checked : false
+    };
     changed++;
   });
   try { localStorage.setItem('hmart_driver_schedules', JSON.stringify(driverSchedules)); } catch(e) {}
@@ -2252,23 +2618,24 @@ function loadAttendance() {
 
   var html = DRIVERS.map(function(d) {
     var sc = getDriverSched(d);
+    var isDayOff = !!(sc.dayOff);
     var actualB = actualBreaks[d] || null;
     var actualCO = actualClockouts[d] || null;
     var bStart = actualB || sc.breakStart;
     var bMins = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
 
-    // Status only meaningful for today
-    var onBreak = isToday && bMins > -1 && nowMins >= bMins && nowMins < bMins + 60;
+    var onBreak = !isDayOff && isToday && bMins > -1 && nowMins >= bMins && nowMins < bMins + 60;
     var schedBMins = sc.breakStart ? parseInt(sc.breakStart.split(':')[0])*60+parseInt(sc.breakStart.split(':')[1]) : -1;
-    var breakOverdue = isToday && !actualB && schedBMins > -1 && nowMins > schedBMins + 30;
-    var clocked_out = isToday && actualCO && (function() {
+    var breakOverdue = !isDayOff && isToday && !actualB && schedBMins > -1 && nowMins > schedBMins + 30;
+    var clocked_out = !isDayOff && isToday && actualCO && (function() {
       var coMins = parseInt(actualCO.split(':')[0])*60+parseInt(actualCO.split(':')[1]);
       return nowMins >= coMins;
     })();
 
     var statusColor, statusText;
-    if(!isToday) {
-      // Past date — just show recorded times
+    if(isDayOff) {
+      statusColor = '#DC2626'; statusText = '🏖 Day Off';
+    } else if(!isToday) {
       statusColor = '#64748B'; statusText = '📅 ' + selDate;
     } else if(clocked_out) {
       statusColor = '#374151'; statusText = '🔴 Clocked Out';
@@ -2278,20 +2645,23 @@ function loadAttendance() {
       statusColor = '#059669'; statusText = '✓ Available';
     }
 
-    return '<div style="background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:12px;margin-bottom:8px;border-left:4px solid ' + statusColor + '">' +
+    return '<div style="background:' + (isDayOff?'#FFF5F5':'#fff') + ';border:1px solid ' + (isDayOff?'#FECACA':'#E2E8F0') + ';border-radius:8px;padding:12px;margin-bottom:8px;border-left:4px solid ' + statusColor + (isDayOff?';opacity:0.85':'') + '">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">' +
         '<div style="font-size:14px;font-weight:700">' + d + '</div>' +
         '<span style="background:' + statusColor + ';color:#fff;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px">' + statusText + '</span>' +
       '</div>' +
-      '<div style="display:flex;gap:12px;font-size:12px;color:#374151;flex-wrap:wrap">' +
-        (sc.clockin  ? '<span>🟢 In: <strong>' + sc.clockin + '</strong></span>' : '') +
-        (bStart ? '<span>' + (actualB ? '☕ Actual Break: ' : '☕ Sched Break: ') + '<strong>' + bStart + '</strong></span>' : '<span style="color:#94A3B8">No break set</span>') +
-        (sc.clockout ? '<span>🔴 Sched Out: <strong>' + sc.clockout + '</strong></span>' : '') +
-        (actualCO ? '<span style="color:#DC2626;font-weight:700">Actual Out: ' + actualCO + '</span>' : '') +
-        (sc.clockin && sc.clockout ? '<span style="color:#1F4E79;font-weight:600">Est: ' + calcHours(sc.clockin, sc.clockout) + '</span>' : '') +
-      '</div>' +
-      (breakOverdue ? '<div style="background:#FEE2E2;border-radius:5px;padding:5px 8px;font-size:11px;color:#DC2626;font-weight:600;margin-top:6px">⚠ Break time passed — actual break not yet recorded</div>' : '') +
-      (sc.notes ? '<div style="font-size:11px;color:#92400E;background:#FEF3C7;padding:4px 8px;border-radius:4px;margin-top:6px">' + sc.notes + '</div>' : '') +
+      (isDayOff ?
+        '<div style="font-size:12px;color:#DC2626;font-style:italic">' + (sc.notes ? sc.notes : 'Day off — not scheduled today') + '</div>' :
+        '<div style="display:flex;gap:12px;font-size:12px;color:#374151;flex-wrap:wrap">' +
+          (sc.clockin  ? '<span>🟢 In: <strong>' + sc.clockin + '</strong></span>' : '') +
+          (bStart ? '<span>' + (actualB ? '☕ Actual Break: ' : '☕ Sched Break: ') + '<strong>' + bStart + '</strong></span>' : '<span style="color:#94A3B8">No break set</span>') +
+          (sc.clockout ? '<span>🔴 Sched Out: <strong>' + sc.clockout + '</strong></span>' : '') +
+          (actualCO ? '<span style="color:#DC2626;font-weight:700">Actual Out: ' + actualCO + '</span>' : '') +
+          (sc.clockin && sc.clockout ? '<span style="color:#1F4E79;font-weight:600">Est: ' + calcHours(sc.clockin, sc.clockout) + '</span>' : '') +
+        '</div>'
+      ) +
+      (!isDayOff && breakOverdue ? '<div style="background:#FEE2E2;border-radius:5px;padding:5px 8px;font-size:11px;color:#DC2626;font-weight:600;margin-top:6px">⚠ Break time passed — actual break not yet recorded</div>' : '') +
+      (!isDayOff && sc.notes ? '<div style="font-size:11px;color:#92400E;background:#FEF3C7;padding:4px 8px;border-radius:4px;margin-top:6px">' + sc.notes + '</div>' : '') +
     '</div>';
   }).join('');
   document.getElementById('att-list').innerHTML = html;
@@ -2425,58 +2795,6 @@ async function specialArrive() {
       }, 2000);
     } else toast('drv-toast', (r && r.message) || 'Error', false);
   } catch(e) { btn.textContent = 'Complete Special Run ✓'; btn.disabled = false; toast('drv-toast', 'Error: ' + e.message, false); }
-}
-</script>
-
-<script>
-// ---- PWA SERVICE WORKER REGISTRATION ----
-if('serviceWorker' in navigator) {
-  window.addEventListener('load', function() {
-    navigator.serviceWorker.register('/hmart-delivery/sw.js')
-      .then(function(reg) {
-        console.log('[PWA] Service Worker registered:', reg.scope);
-        // Check for updates
-        reg.addEventListener('updatefound', function() {
-          var newWorker = reg.installing;
-          newWorker.addEventListener('statechange', function() {
-            if(newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              showNetworkStatus('App updated! Refresh to get latest version.', 'orange');
-            }
-          });
-        });
-      })
-      .catch(function(err) {
-        console.log('[PWA] Service Worker registration failed:', err);
-      });
-  });
-}
-
-// PWA install prompt
-var deferredPrompt;
-window.addEventListener('beforeinstallprompt', function(e) {
-  e.preventDefault();
-  deferredPrompt = e;
-  // Show install button after a delay
-  setTimeout(function() {
-    var installBar = document.getElementById('install-bar');
-    if(installBar) installBar.style.display = 'flex';
-  }, 3000);
-});
-
-window.addEventListener('appinstalled', function() {
-  var installBar = document.getElementById('install-bar');
-  if(installBar) installBar.style.display = 'none';
-  deferredPrompt = null;
-});
-
-function installApp() {
-  if(!deferredPrompt) return;
-  deferredPrompt.prompt();
-  deferredPrompt.userChoice.then(function(choice) {
-    deferredPrompt = null;
-    var installBar = document.getElementById('install-bar');
-    if(installBar) installBar.style.display = 'none';
-  });
 }
 </script>
 
