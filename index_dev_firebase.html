@@ -1200,7 +1200,7 @@ function payBadge(p) {
 
 async function loadDriverList() {
   try {
-    var data = _cache['getAdminSettings{}'] || await apiGet('getAdminSettings');
+    var data = await apiGet('getAdminSettings');
     if(data && data.drivers) DRIVERS = data.drivers;
   } catch(e) {}
   var sel = document.getElementById('drv-name');
@@ -1342,7 +1342,6 @@ async function loadOrders() {
   listEl.innerHTML = '<div class="empty" style="padding:32px"><div style="font-size:28px;animation:spin 1s linear infinite;display:inline-block">⟳</div><div style="margin-top:8px;font-size:13px;color:#64748B">Loading orders...</div></div>';
   if(refreshBtn) { refreshBtn.textContent = '...'; refreshBtn.disabled = true; }
   try {
-    delete _cache['getOfficeData{}'];
     var officeData = await apiGet('getOfficeData');
     allOrders = (officeData && officeData.orders) || [];
     var runs = (officeData && officeData.runs) || [];
@@ -1646,7 +1645,6 @@ async function drvLoadData() {
   var preview = document.getElementById('drv-orders-preview');
   if(preview) preview.innerHTML = '<div style="text-align:center;padding:20px;color:#64748B"><div style="font-size:28px;animation:spin 1s linear infinite;display:inline-block">⟳</div><div style="margin-top:8px;font-size:13px">Loading orders...</div></div>';
   try {
-    delete _cache['getOfficeData{}'];
     var data = await apiGet('getOfficeData');
     var orders = (data && data.orders) || [];
     var runs   = (data && data.runs)   || [];
