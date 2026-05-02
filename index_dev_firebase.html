@@ -533,6 +533,19 @@ async function apiPost(action, data, _bypassQueue) {
       return { success: true };
     }
 
+    // ── updateOrderFull — edit all fields ─────────────────
+    if(action === 'updateOrderFull') {
+      var upd = {};
+      if(data.businessName !== undefined) upd.businessName = data.businessName;
+      if(data.invoiceNum   !== undefined) upd.invoiceNum   = data.invoiceNum;
+      if(data.billAmount   !== undefined) upd.billAmount   = data.billAmount;
+      if(data.payment      !== undefined) upd.payment      = data.payment;
+      if(data.change       !== undefined) upd.change       = data.change;
+      if(data.notes        !== undefined) upd.notes        = data.notes;
+      await dbUpdate('hmart/orders/' + data.orderId, upd);
+      return { success: true };
+    }
+
     // ── submitDeparture ────────────────────────────────────
     if(action === 'submitDeparture') {
       var runKey = 'RUN-' + newId();
@@ -1650,7 +1663,41 @@ function buildOrderItemHTML(o, displayStatus) {
         }).map(function(d) { return '<option' + (o.driver === d ? ' selected' : '') + '>' + d + '</option>'; }).join('') +
       '</select>' +
       '<button class="btn-blue-off" onclick="reassign(\'' + o.orderId + '\',' + o.rowNum + ')">Save</button>' +
+      '<button onclick="toggleOrderEdit(\'' + o.orderId + '\')" style="padding:6px 10px;font-size:12px;background:#F8FAFC;border:1px solid #D1D5DB;border-radius:5px;color:#374151;cursor:pointer">✏️ Edit</button>' +
       '<button class="btn-danger-off" onclick="delOrder(\'' + o.orderId + '\')">Del</button>' +
+    '</div>' +
+    // Inline edit panel (hidden by default)
+    '<div id="edit-panel-' + o.orderId + '" style="display:none;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:12px;margin-top:8px">' +
+      '<div style="font-size:11px;font-weight:600;color:#64748B;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em">Edit Order</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
+        '<div>' +
+          '<div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Business Name</div>' +
+          '<input type="text" id="edit-name-' + o.orderId + '" value="' + (o.businessName||'').replace(/"/g,'&quot;') + '" style="width:100%;padding:7px 9px;border:1px solid #D1D5DB;border-radius:6px;font-size:13px">' +
+        '</div>' +
+        '<div>' +
+          '<div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Invoice #</div>' +
+          '<input type="text" id="edit-inv-' + o.orderId + '" value="' + (o.invoiceNum||'') + '" style="width:100%;padding:7px 9px;border:1px solid #D1D5DB;border-radius:6px;font-size:13px">' +
+        '</div>' +
+        '<div>' +
+          '<div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Bill Amount P</div>' +
+          '<input type="number" id="edit-amt-' + o.orderId + '" value="' + (o.billAmount||'') + '" inputmode="numeric" style="width:100%;padding:7px 9px;border:1px solid #D1D5DB;border-radius:6px;font-size:13px" oninput="editCalcChange(\'' + o.orderId + '\')">' +
+        '</div>' +
+        '<div>' +
+          '<div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Payment Method</div>' +
+          '<select id="edit-pay-' + o.orderId + '" style="width:100%;padding:7px 9px;border:1px solid #D1D5DB;border-radius:6px;font-size:13px" onchange="editCalcChange(\'' + o.orderId + '\')">' +
+            PAYMENTS.map(function(p) { return '<option' + (o.payment===p?' selected':'') + '>' + p + '</option>'; }).join('') +
+          '</select>' +
+        '</div>' +
+      '</div>' +
+      '<div style="margin-bottom:8px">' +
+        '<div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Notes</div>' +
+        '<input type="text" id="edit-notes-' + o.orderId + '" value="' + (o.notes||'').replace(/"/g,'&quot;') + '" placeholder="Notes..." style="width:100%;padding:7px 9px;border:1px solid #D1D5DB;border-radius:6px;font-size:13px">' +
+      '</div>' +
+      '<div id="edit-chg-' + o.orderId + '" style="font-size:12px;color:#059669;font-weight:600;margin-bottom:8px;display:none"></div>' +
+      '<div style="display:flex;gap:8px">' +
+        '<button onclick="saveOrderEdit(\'' + o.orderId + '\')" style="flex:1;padding:9px;font-size:13px;font-weight:600;background:#1F4E79;color:#fff;border:none;border-radius:7px;cursor:pointer">Save Changes</button>' +
+        '<button onclick="toggleOrderEdit(\'' + o.orderId + '\')" style="padding:9px 14px;font-size:13px;background:#F1F5F9;color:#374151;border:none;border-radius:7px;cursor:pointer">Cancel</button>' +
+      '</div>' +
     '</div>';
   }
 
@@ -1696,6 +1743,67 @@ async function delOrder(orderId) {
   if(!confirm('Delete this order?')) return;
   var r = await apiPost('deleteOrder', { orderId: orderId });
   if(r && r.success) { toast('toast-ord', 'Deleted', true); loadOrders(); }
+}
+
+// ---- ORDER INLINE EDIT ----
+function toggleOrderEdit(orderId) {
+  var panel = document.getElementById('edit-panel-' + orderId);
+  if(!panel) return;
+  var isOpen = panel.style.display !== 'none';
+  panel.style.display = isOpen ? 'none' : 'block';
+  // Pre-calculate change if amount already set
+  if(!isOpen) editCalcChange(orderId);
+}
+
+function editCalcChange(orderId) {
+  var amtEl = document.getElementById('edit-amt-' + orderId);
+  var payEl = document.getElementById('edit-pay-' + orderId);
+  var chgEl = document.getElementById('edit-chg-' + orderId);
+  if(!amtEl || !chgEl) return;
+  var bill = parseFloat(amtEl.value) || 0;
+  var pay  = payEl ? payEl.value : 'Cash';
+  if(bill <= 0 || pay !== 'Cash') { chgEl.style.display = 'none'; return; }
+  var change = roundUpK(bill) - bill;
+  chgEl.textContent = 'Change: P' + Math.round(change) + ' (from P' + roundUpK(bill).toLocaleString() + ')';
+  chgEl.style.display = 'block';
+}
+
+async function saveOrderEdit(orderId) {
+  var nameEl  = document.getElementById('edit-name-'  + orderId);
+  var invEl   = document.getElementById('edit-inv-'   + orderId);
+  var amtEl   = document.getElementById('edit-amt-'   + orderId);
+  var payEl   = document.getElementById('edit-pay-'   + orderId);
+  var notesEl = document.getElementById('edit-notes-' + orderId);
+  if(!nameEl) return;
+
+  var bill   = amtEl ? amtEl.value.trim() : '';
+  var pay    = payEl ? payEl.value : 'Cash';
+  var change = '';
+  if(bill && pay === 'Cash') {
+    var b = parseFloat(bill);
+    if(b > 0) change = String(Math.round(roundUpK(b) - b));
+  }
+
+  var btn = document.querySelector('#edit-panel-' + orderId + ' button');
+  if(btn) { btn.textContent = 'Saving...'; btn.disabled = true; }
+
+  var r = await apiPost('updateOrderFull', {
+    orderId:      orderId,
+    businessName: nameEl.value.trim(),
+    invoiceNum:   invEl  ? invEl.value.trim()   : '',
+    billAmount:   bill,
+    payment:      pay,
+    change:       change,
+    notes:        notesEl ? notesEl.value.trim() : ''
+  });
+
+  if(btn) { btn.textContent = 'Save Changes'; btn.disabled = false; }
+  if(r && r.success) {
+    toast('toast-ord', 'Order updated!', true);
+    loadOrders();
+  } else {
+    toast('toast-ord', 'Error saving', false);
+  }
 }
 
 // ---- AMOUNT EDIT ----
