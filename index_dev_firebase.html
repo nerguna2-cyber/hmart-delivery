@@ -321,7 +321,9 @@ async function apiGet(action, params) {
             invoiceNum: o.invoiceNum||'', driver: o.driver||'',
             change: o.change||'', status: o.status||'PENDING',
             completeTime: o.completeTime||'', notes: o.notes||'',
-            payment: o.payment||'Cash', billAmount: o.billAmount||''
+            payment: o.payment||'Cash', billAmount: o.billAmount||'',
+            cancelCount: o.cancelCount||0, flagged: o.flagged||false,
+            startTime: o.startTime||'', flagReason: o.flagReason||''
           };
         });
       var runs = fb.objToArr(runObj).filter(function(ru) { return ru.date === today; })
@@ -487,14 +489,30 @@ async function apiPost(action, data, _bypassQueue) {
 
     // ── setOrderInProgress ─────────────────────────────────
     if(action === 'setOrderInProgress') {
-      await dbUpdate('hmart/orders/' + data.orderId, { status: 'IN PROGRESS' });
+      await dbUpdate('hmart/orders/' + data.orderId, {
+        status: 'IN PROGRESS',
+        startTime: now,  // record when driver tapped START
+        startedBy: data.driver || ''
+      });
       return { success: true };
     }
 
     // ── cancelOrderProgress ────────────────────────────────
     if(action === 'cancelOrderProgress') {
-      await dbUpdate('hmart/orders/' + data.orderId, { status: 'PENDING' });
-      return { success: true };
+      // Read current cancel count, increment it
+      var curOrd = await dbGet('hmart/orders/' + data.orderId);
+      var cancelCount = ((curOrd && curOrd.cancelCount) || 0) + 1;
+      await dbUpdate('hmart/orders/' + data.orderId, {
+        status: 'PENDING',
+        cancelCount: cancelCount,
+        lastCancelTime: now,
+        lastCancelBy: data.driver || ''
+      });
+      // Flag if too many cancels (3+)
+      if(cancelCount >= 3) {
+        await dbUpdate('hmart/orders/' + data.orderId, { flagged: true, flagReason: 'Cancel ' + cancelCount + 'x repeated' });
+      }
+      return { success: true, cancelCount: cancelCount };
     }
 
     // ── completeOrder ──────────────────────────────────────
@@ -629,30 +647,7 @@ async function apiPost(action, data, _bypassQueue) {
       return { success: true };
     }
 
-    // ── resetOrders — archive then delete today's orders ───
-    if(action === 'resetOrders') {
-      var ordObj = await dbGet('hmart/orders') || {};
-      var tasks = [];
-      var count = 0;
-      fb.objToArr(ordObj).forEach(function(o) {
-        if(o.date === today) {
-          // Archive first, then delete
-          tasks.push(
-            dbSet('hmart/archive/' + today + '/orders/' + o._fbKey, o)
-              .then(function() { return dbRemove('hmart/orders/' + o._fbKey); })
-          );
-          count++;
-        }
-      });
-      await Promise.all(tasks);
-      // Save archive metadata
-      await dbSet('hmart/archive/' + today + '/meta', {
-        date: today, resetTime: now, type: 'orders-only', ordersArchived: count
-      });
-      return { success: true, count: count };
-    }
-
-    // ── resetAllToday — archive then delete orders + non-emergency runs ─
+    // ── resetAllToday — archive ALL (incl. emergency) then delete ─
     if(action === 'resetAllToday') {
       var ordObj = await dbGet('hmart/orders') || {};
       var runObj = await dbGet('hmart/runs')   || {};
@@ -662,7 +657,7 @@ async function apiPost(action, data, _bypassQueue) {
       var ordersDeleted = 0;
       var runsDeleted   = 0;
 
-      // Archive all today's orders
+      // Archive + delete ALL today's orders
       fb.objToArr(ordObj).forEach(function(o) {
         if(o.date === today) {
           tasks.push(
@@ -673,29 +668,23 @@ async function apiPost(action, data, _bypassQueue) {
         }
       });
 
-      // Archive + delete non-emergency runs
+      // Archive + delete ALL today's runs (including emergency)
       fb.objToArr(runObj).forEach(function(ru) {
         if(ru.date === today) {
-          var isEmerg = ru.destination && ru.destination.indexOf('🚨') === 0;
-          // Always archive emergency runs too
-          tasks.push(dbSet('hmart/archive/' + today + '/runs/' + ru._fbKey, ru));
-          if(!isEmerg) {
-            tasks.push(dbRemove('hmart/runs/' + ru._fbKey));
-            runsDeleted++;
-          }
+          tasks.push(
+            dbSet('hmart/archive/' + today + '/runs/' + ru._fbKey, ru)
+              .then(function() { return dbRemove('hmart/runs/' + ru._fbKey); })
+          );
+          runsDeleted++;
         }
       });
 
-      // Archive fuel and checklists (keep in original location too)
+      // Archive fuel and checklists (keep originals)
       fb.objToArr(fuelObj).forEach(function(f) {
-        if(f.date === today) {
-          tasks.push(dbSet('hmart/archive/' + today + '/fuel/' + f._fbKey, f));
-        }
+        if(f.date === today) tasks.push(dbSet('hmart/archive/' + today + '/fuel/' + f._fbKey, f));
       });
       fb.objToArr(chkObj).forEach(function(c) {
-        if(c.date === today) {
-          tasks.push(dbSet('hmart/archive/' + today + '/checklists/' + c._fbKey, c));
-        }
+        if(c.date === today) tasks.push(dbSet('hmart/archive/' + today + '/checklists/' + c._fbKey, c));
       });
 
       await Promise.all(tasks);
@@ -707,6 +696,16 @@ async function apiPost(action, data, _bypassQueue) {
       });
 
       return { success: true, ordersDeleted: ordersDeleted, runsDeleted: runsDeleted };
+    }
+
+    // ── fullWipe — delete absolutely everything including archive ─
+    if(action === 'fullWipe') {
+      await dbRemove('hmart/orders');
+      await dbRemove('hmart/runs');
+      await dbRemove('hmart/fuel');
+      await dbRemove('hmart/checklists');
+      await dbRemove('hmart/archive');
+      return { success: true };
     }
 
     // ── exportToCSV — includes today + archive ─────────────
@@ -1266,43 +1265,41 @@ function showNetworkStatus(msg, color) {
         <div class="admin-card" style="border:2px solid #1F4E79">
           <div class="admin-title" style="color:#1F4E79">📋 End of Day — Daily Close</div>
           <div style="font-size:13px;color:#64748B;margin-bottom:14px">
-            마감 순서: <strong>① 보고서 확인</strong> → <strong>② Excel 저장</strong> → <strong>③ 데이터 리셋</strong>
+            마감 순서: <strong>① 현황 확인</strong> → <strong>② Excel 저장</strong> → <strong>③ 리셋</strong>
           </div>
 
-          <!-- Step 1: Quick summary -->
-          <div id="eod-summary" style="background:#F8FAFC;border-radius:8px;padding:12px;margin-bottom:12px;font-size:13px">
+          <!-- Step 1 -->
+          <div style="margin-bottom:12px">
             <button onclick="loadEodSummary()" style="width:100%;padding:10px;background:#EFF6FF;border:1.5px solid #BFDBFE;border-radius:7px;color:#1F4E79;font-size:13px;font-weight:600;cursor:pointer">① 오늘 현황 확인</button>
             <div id="eod-summary-content" style="margin-top:10px;display:none"></div>
           </div>
 
-          <!-- Step 2: Export Excel -->
+          <!-- Step 2 -->
           <div style="margin-bottom:12px">
-            <button onclick="exportExcel()" id="btn-export-excel" style="width:100%;padding:12px;background:#059669;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">② Excel 파일로 저장 (.xlsx)</button>
-            <div style="font-size:11px;color:#64748B;margin-top:4px;text-align:center">오더, 런, 연료, 체크리스트 포함</div>
+            <button onclick="exportExcel()" id="btn-export-excel" style="width:100%;padding:12px;background:#059669;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">② Excel 파일로 저장</button>
+            <div style="font-size:11px;color:#64748B;margin-top:4px;text-align:center">오더, 런, 연료, 체크리스트 전체 포함</div>
           </div>
 
-          <!-- Step 3: Reset -->
+          <!-- Step 3 -->
           <div style="border-top:1px solid #E2E8F0;padding-top:12px">
-            <div style="font-size:12px;color:#64748B;margin-bottom:8px">
-              ③ 데이터 리셋 — <strong>이머전시 운행은 유지됩니다</strong>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-              <button onclick="resetTodayOrders()" style="padding:11px;font-size:13px;font-weight:600;background:#FEE2E2;color:#DC2626;border:1px solid #FCA5A5;border-radius:8px;cursor:pointer">오더만 리셋</button>
-              <button onclick="resetAllToday()" style="padding:11px;font-size:13px;font-weight:600;background:#DC2626;color:#fff;border:none;border-radius:8px;cursor:pointer">전체 리셋 (오더+런)</button>
-            </div>
-            <div style="margin-top:8px;background:#FEF3C7;border-radius:6px;padding:8px 10px;font-size:11px;color:#92400E">
-              ⏰ 자동 리셋: 매일 <strong>오후 10:00</strong>에 자동으로 전체 리셋됩니다
-              <span id="auto-reset-countdown" style="font-weight:700;margin-left:4px"></span>
-            </div>
+            <div style="font-size:12px;color:#374151;font-weight:600;margin-bottom:4px">③ 리셋</div>
+            <div style="font-size:11px;color:#64748B;margin-bottom:10px">데이터는 archive에 자동 보존 → 운영 화면만 초기화</div>
+            <button onclick="resetAllToday()" style="width:100%;padding:13px;font-size:14px;font-weight:700;background:#1F4E79;color:#fff;border:none;border-radius:8px;cursor:pointer">🔄 오늘 데이터 Archive 후 리셋</button>
+            <div style="font-size:11px;color:#94A3B8;margin-top:6px;text-align:center">오더 + 런 + Emergency 모두 보존 후 운영 화면 초기화</div>
           </div>
         </div>
 
         <!-- Reset log -->
         <div class="admin-card">
           <div class="admin-title">Reset History</div>
-          <div id="reset-log" style="font-size:12px;color:#64748B">
-            <div class="empty" style="font-size:12px">No resets today</div>
-          </div>
+          <div id="reset-log"><div class="empty" style="font-size:12px">No resets yet</div></div>
+        </div>
+
+        <!-- DANGER ZONE -->
+        <div class="admin-card" style="border:1px solid #FCA5A5">
+          <div class="admin-title" style="color:#DC2626">⚠ Danger Zone</div>
+          <div style="font-size:12px;color:#64748B;margin-bottom:10px">Archive 포함 전체 삭제 — 복구 불가능합니다</div>
+          <button onclick="fullWipeAll()" style="width:100%;padding:11px;font-size:13px;font-weight:600;background:#FEE2E2;color:#DC2626;border:1px solid #FCA5A5;border-radius:8px;cursor:pointer">🗑 전체 데이터 완전 삭제 (Archive 포함)</button>
         </div>
       </div>
     </div>
@@ -1437,7 +1434,10 @@ function addFastRow() {
     '</div>' +
     '<div class="row2" style="margin-bottom:8px">' +
       '<div><div class="fast-label">Assign Driver</div><select id="fr-d-' + id + '"><option value="">Unassigned</option>' +
-        DRIVERS.map(function(d) { return '<option>' + d + '</option>'; }).join('') +
+        DRIVERS.filter(function(d) {
+          var sc = getDriverSched(d);
+          return !(sc && sc.dayOff);
+        }).map(function(d) { return '<option>' + d + '</option>'; }).join('') +
       '</select></div>' +
       '<div><div class="fast-label">Bill Amount P</div><input type="number" id="fr-b-' + id + '" placeholder="0" inputmode="numeric" oninput="frCalc(' + id + ')"></div>' +
     '</div>' +
@@ -1548,14 +1548,14 @@ function renderOrders() {
   // 2. IN PROGRESS — driver tapped "Start Delivery"
   var progGrp = orders.filter(function(o) { return o.status === 'IN PROGRESS'; });
   if(progGrp.length) {
-    html += '<div class="section-label">▶ IN PROGRESS (' + progGrp.length + ')</div>';
+    html += '<div class="section-label">🚚 DELIVERING (' + progGrp.length + ')</div>';
     progGrp.forEach(function(o) { html += buildOrderItemHTML(o, 'IN PROGRESS'); });
   }
 
   // 3. ON THE WAY — PENDING but driver already departed with this order
   var otwGrp = orders.filter(function(o) { return o.status === 'PENDING' && _onTheWayIds[o.orderId]; });
   if(otwGrp.length) {
-    html += '<div class="section-label" style="color:#7C3AED">🚚 ON THE WAY (' + otwGrp.length + ')</div>';
+    html += '<div class="section-label" style="color:#7C3AED">🕐 READY TO GO (' + otwGrp.length + ')</div>';
     otwGrp.forEach(function(o) { html += buildOrderItemHTML(o, 'ON THE WAY'); });
   }
 
@@ -1578,10 +1578,10 @@ function buildOrderItemHTML(o, displayStatus) {
 
   if(displayStatus === 'ON THE WAY') {
     cls = 'order-item-ontheway';
-    statusBadge = '<span class="status-ontheway">🚚 ON THE WAY</span>';
+    statusBadge = '<span class="status-ontheway">🕐 READY TO GO</span>';
   } else if(displayStatus === 'IN PROGRESS') {
     cls = 'order-item-progress';
-    statusBadge = '<span class="status-progress">▶ IN PROGRESS</span>';
+    statusBadge = '<span class="status-progress">🚚 DELIVERING</span>';
   } else if(displayStatus === 'COMPLETED') {
     cls = 'order-item-done';
     statusBadge = '<span class="status-done">✓ DONE</span>';
@@ -1608,6 +1608,7 @@ function buildOrderItemHTML(o, displayStatus) {
       (isBiz ? '<span class="biz-tag">Business</span>' : '<span class="personal-tag">Personal</span>') +
       payBadge(o.payment || 'Cash') +
       driverBadge +
+      (o.flagged ? '<span style="background:#FEE2E2;color:#DC2626;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid #FCA5A5">⚠ Cancel ' + o.cancelCount + 'x</span>' : '') +
     '</div>' +
     '<div style="display:flex;gap:10px;font-size:12px;color:#64748B;flex-wrap:wrap">' +
       (o.billAmount ? '<span>Bill: P' + o.billAmount + '</span>' : '') +
@@ -1643,7 +1644,10 @@ function buildOrderItemHTML(o, displayStatus) {
     html += '<div style="display:flex;gap:6px;margin-top:8px;align-items:center">' +
       '<select id="ra-' + o.rowNum + '" style="flex:1;padding:6px 8px;font-size:12px;border:1px solid #D1D5DB;border-radius:5px">' +
         '<option value="">Reassign...</option>' +
-        DRIVERS.map(function(d) { return '<option' + (o.driver === d ? ' selected' : '') + '>' + d + '</option>'; }).join('') +
+        DRIVERS.filter(function(d) {
+          var sc = getDriverSched(d);
+          return !(sc && sc.dayOff);
+        }).map(function(d) { return '<option' + (o.driver === d ? ' selected' : '') + '>' + d + '</option>'; }).join('') +
       '</select>' +
       '<button class="btn-blue-off" onclick="reassign(\'' + o.orderId + '\',' + o.rowNum + ')">Save</button>' +
       '<button class="btn-danger-off" onclick="delOrder(\'' + o.orderId + '\')">Del</button>' +
@@ -1777,10 +1781,20 @@ async function drvSelectName() {
   document.getElementById('drv-s2').style.display = 'block';
   document.getElementById('drv-name-disp').textContent = driver;
 
+  // Populate special run selects - exclude current driver, active drivers, day-off drivers
   var sc = document.getElementById('special-codrv');
   if(sc) {
+    var activeDrvs = (typeof runs !== 'undefined' ? runs : [])
+      .filter(function(r) { return r.status === 'IN PROGRESS'; })
+      .map(function(r) { return r.driver; });
     sc.innerHTML = '<option value="">None</option>' +
-      DRIVERS.filter(function(d) { return d !== driver; }).map(function(d) { return '<option>' + d + '</option>'; }).join('');
+      DRIVERS.filter(function(d) {
+        if(d === driver) return false;
+        if(activeDrvs.indexOf(d) > -1) return false;
+        var sc2 = getDriverSched(d);
+        if(sc2 && sc2.dayOff) return false;
+        return true;
+      }).map(function(d) { return '<option>' + d + '</option>'; }).join('');
   }
 
   var specSec = document.getElementById('drv-special-section');
@@ -1837,42 +1851,25 @@ async function drvLoadData() {
     var runs   = (data && data.runs)   || [];
     drvOrders = orders;
 
-    var activeRuns   = runs.filter(function(r) { return r.status === 'IN PROGRESS'; });
-    var busyVehicles = activeRuns.map(function(r) { return r.vehicle; });
-    var busyPlates   = activeRuns.map(function(r) { return r.plate; });
+    var activeRuns = runs.filter(function(r) { return r.status === 'IN PROGRESS'; });
+    // Use plate-only matching to prevent LITE ACE cross-matching
+    var busyPlates = activeRuns.map(function(r) { return (r.plate||'').trim(); }).filter(Boolean);
 
-    var spVSel = document.getElementById('special-vehicle');
-    if(spVSel) {
-      Array.from(spVSel.options).forEach(function(opt) {
+    function markBusyVehicles(selId) {
+      var sel = document.getElementById(selId);
+      if(!sel) return;
+      Array.from(sel.options).forEach(function(opt) {
         if(!opt.value) return;
-        var optText = opt.text.replace(' [IN USE]','');
-        var optName  = optText.split(' (')[0].trim();
-        var optPlate = (optText.match(/\(([^)]+)\)/) || [])[1] || '';
-        var isBusy = busyVehicles.some(function(v) { return v && v.trim() === optName; }) ||
-                     busyPlates.some(function(p) { return p && optPlate && p.trim() === optPlate.trim(); });
-        opt.disabled = isBusy;
-        opt.text = optText + (isBusy ? ' [IN USE]' : '');
+        var optText  = opt.text.replace(' [IN USE]','');
+        var optPlate = ((optText.match(/\(([^)]+)\)/) || [])[1] || '').trim();
+        var isBusy   = optPlate && busyPlates.indexOf(optPlate) > -1;
+        opt.disabled    = isBusy;
+        opt.text        = optText + (isBusy ? ' [IN USE]' : '');
         opt.style.color = isBusy ? '#DC2626' : '';
       });
     }
-
-    var vSel = document.getElementById('drv-vehicle');
-    if(vSel) {
-      Array.from(vSel.options).forEach(function(opt) {
-        if(!opt.value || opt.label === undefined) return;
-        var optText = opt.text.replace(' [IN USE]','');
-        var optName = optText.split(' (')[0].trim();
-        var optPlate = (optText.match(/\(([^)]+)\)/) || [])[1] || '';
-        var isBusy = busyVehicles.some(function(v) {
-          return v && (v.trim() === optName || v.trim().indexOf(optName) > -1);
-        }) || busyPlates.some(function(p) {
-          return p && optPlate && p.trim() === optPlate.trim();
-        });
-        opt.disabled = isBusy;
-        opt.text = optText + (isBusy ? ' [IN USE]' : '');
-        opt.style.color = isBusy ? '#DC2626' : '';
-      });
-    }
+    markBusyVehicles('special-vehicle');
+    markBusyVehicles('drv-vehicle');
 
     var specialServerRun = runs.find(function(r) {
       return r.driver === curDriver && r.status === 'IN PROGRESS' &&
@@ -1899,7 +1896,8 @@ async function drvLoadData() {
     });
     if(activeRun.length) {
       showActiveRun(activeRun[activeRun.length - 1], orders);
-    } else if(!specialServerRun) {
+    } else {
+      // Always show predep (driver can have pending orders even during/after special run)
       showPreDep(orders);
     }
   } catch(e) {
@@ -1998,12 +1996,15 @@ async function startDel(orderId) {
     : drvOrders.filter(function(o) { return o.driver === curDriver; });
   renderDelCards(runOrds);
   if(order.status === 'IN PROGRESS') {
-    var r2 = await apiPost('setOrderInProgress', { orderId: orderId });
+    var r2 = await apiPost('setOrderInProgress', { orderId: orderId, driver: curDriver });
     if(r2 && r2.success) { toast('drv-toast', 'Started!', true); }
     else { order.status = 'PENDING'; drvLoadData(); }
   } else {
-    var r = await apiPost('cancelOrderProgress', { orderId: orderId });
-    if(r && r.success) { toast('drv-toast', 'Cancelled', false); }
+    var r = await apiPost('cancelOrderProgress', { orderId: orderId, driver: curDriver });
+    if(r && r.success) {
+      if(r.cancelCount >= 3) toast('drv-toast', '⚠ Cancel ' + r.cancelCount + 'x recorded', false);
+      else toast('drv-toast', 'Cancelled', false);
+    }
     else { order.status = 'IN PROGRESS'; drvLoadData(); }
   }
 }
@@ -2171,11 +2172,44 @@ async function loadLive() {
     if(comp.length) {
       html += '<div class="section-label">Completed Runs</div>';
       comp.forEach(function(r) {
-        html += '<div class="run-card-done"><div style="display:flex;align-items:center;gap:8px">' +
-          '<span style="font-size:14px;font-weight:600">' + r.driver + '</span>' +
-          '<span class="badge badge-cash">Done</span>' +
-          '<span style="font-size:12px;color:#64748B;margin-left:auto">' + fmtTime(r.depTime) + ' → ' + fmtTime(r.arrTime) + '</span>' +
-          '</div><div style="font-size:12px;color:#64748B;margin-top:4px">' + r.vehicle + ' | +' + r.distKm + ' km</div></div>';
+        var myOrds = orders.filter(function(o) {
+          return r.orderIds && r.orderIds.indexOf(o.orderId) > -1;
+        });
+        var totalBill = myOrds.reduce(function(s,o) { return s + (parseFloat(o.billAmount)||0); }, 0);
+        var totalChange = myOrds.filter(function(o) { return o.payment==='Cash'; })
+          .reduce(function(s,o) { return s + (parseFloat(o.change)||0); }, 0);
+        var isEmerg = r.destination && r.destination.indexOf('🚨') === 0;
+        html += '<div class="run-card-done">' +
+          '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+            '<span style="font-size:14px;font-weight:600">' + r.driver + '</span>' +
+            '<span class="badge badge-cash">Done</span>' +
+            (isEmerg ? '<span style="background:#FEF3C7;color:#92400E;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px">🚨 Emergency</span>' : '') +
+            '<span style="font-size:12px;color:#64748B;margin-left:auto">' + fmtTime(r.depTime) + ' → ' + fmtTime(r.arrTime) + '</span>' +
+          '</div>' +
+          '<div style="font-size:12px;color:#64748B;margin-top:4px;display:flex;gap:12px;flex-wrap:wrap">' +
+            '<span>🚐 ' + r.vehicle + '</span>' +
+            '<span>📍 ' + (r.destination || '-') + '</span>' +
+            '<span>📏 +' + r.distKm + ' km</span>' +
+          '</div>' +
+          (myOrds.length ?
+            '<div style="margin-top:8px;border-top:1px solid #F1F5F9;padding-top:6px">' +
+              '<div style="display:flex;gap:12px;font-size:12px;flex-wrap:wrap;margin-bottom:6px">' +
+                (totalBill > 0 ? '<span style="font-weight:600;color:#1F4E79">💰 Total: P' + Math.round(totalBill).toLocaleString() + '</span>' : '') +
+                (totalChange > 0 ? '<span style="font-weight:600;color:#059669">💵 Change: P' + Math.round(totalChange).toLocaleString() + '</span>' : '') +
+              '</div>' +
+              myOrds.map(function(o) {
+                return '<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #F8FAFC;font-size:12px">' +
+                  '<span style="color:#059669;font-weight:700">✓</span>' +
+                  '<span style="flex:1;font-weight:500">' + o.businessName + '</span>' +
+                  payBadge(o.payment||'Cash') +
+                  (o.billAmount ? '<span style="color:#374151">P' + o.billAmount + '</span>' : '') +
+                  (o.change && o.payment==='Cash' ? '<span style="color:#059669">→P' + o.change + '</span>' : '') +
+                  (o.completeTime ? '<span style="color:#94A3B8">' + fmtTime(o.completeTime) + '</span>' : '') +
+                '</div>';
+              }).join('') +
+            '</div>'
+          : '') +
+        '</div>';
       });
     }
 
@@ -2411,7 +2445,7 @@ async function loadEodSummary() {
       '</div>' +
       (pendOrders.length ? '<div style="background:#FEF3C7;border-radius:6px;padding:8px;font-size:12px;color:#92400E;margin-bottom:6px">⏳ 미완료 오더 ' + pendOrders.length + '건: ' + pendOrders.map(function(o){return o.businessName;}).join(', ') + '</div>' : '') +
       (activeRuns.length ? '<div style="background:#EFF6FF;border-radius:6px;padding:8px;font-size:12px;color:#1F4E79;margin-bottom:6px">🚚 진행중 런 ' + activeRuns.length + '건 (리셋해도 유지됨)</div>' : '') +
-      (emergRuns.length ? '<div style="background:#FFF7ED;border-radius:6px;padding:8px;font-size:12px;color:#92400E">🚨 이머전시 런 ' + emergRuns.length + '건 — 리셋 후에도 보존됩니다</div>' : '');
+      (emergRuns.length ? '<div style="background:#FFF7ED;border-radius:6px;padding:8px;font-size:12px;color:#92400E">🚨 Emergency 런 ' + emergRuns.length + '건 — 리셋 후에도 보존됩니다</div>' : '');
   } catch(e) {
     el.innerHTML = '<div style="color:#DC2626;font-size:12px">오류: ' + e.message + '</div>';
   }
@@ -2419,38 +2453,51 @@ async function loadEodSummary() {
 
 // ---- RESET FUNCTIONS ----
 async function resetTodayOrders() {
-  if(!confirm('오늘 오더를 모두 삭제하시겠어요?\n(런/이머전시 데이터는 유지됩니다)')) return;
-  var btn = event.target;
-  btn.textContent = '리셋중...'; btn.disabled = true;
-  try {
-    var r = await apiPost('resetOrders', {});
-    btn.textContent = '오더만 리셋'; btn.disabled = false;
-    if(r && r.success) {
-      toast('toast-admin', '오더 리셋 완료!', true);
-      addResetLog('🔄 오더 리셋 — ' + r.count + '건 삭제');
-      document.getElementById('eod-summary-content').style.display = 'none';
-    }
-  } catch(e) { btn.textContent = '오더만 리셋'; btn.disabled = false; }
+  // kept for legacy compatibility
+  resetAllToday();
 }
 
 async function resetAllToday() {
-  if(!confirm('오늘 오더와 런을 모두 리셋하시겠어요?\n이머전시 운행은 유지됩니다.\n\n⚠ Excel 저장은 하셨나요?')) return;
-  var btn = event.target;
-  btn.textContent = '리셋중...'; btn.disabled = true;
+  if(!confirm('오늘 데이터를 Archive 저장 후 리셋하시겠어요?\n\n✅ 모든 데이터는 Archive에 보존됩니다\n(오더, 런, Emergency 모두 포함)\n\n⚠ Excel 저장은 하셨나요?')) return;
+  var btn = document.querySelector('[onclick="resetAllToday()"]');
+  var origText = btn ? btn.textContent : '';
+  if(btn) { btn.textContent = '⏳ Archive 저장중...'; btn.disabled = true; }
   try {
     var r = await apiPost('resetAllToday', {});
-    btn.textContent = '전체 리셋 (오더+런)'; btn.disabled = false;
+    if(btn) { btn.textContent = origText; btn.disabled = false; }
     if(r && r.success) {
-      toast('toast-admin', '전체 리셋 완료! 오더 ' + r.ordersDeleted + '건, 런 ' + r.runsDeleted + '건 삭제', true);
-      addResetLog('🔴 전체 리셋 — 오더 ' + r.ordersDeleted + '건, 런 ' + r.runsDeleted + '건 (이머전시 제외)');
-      document.getElementById('eod-summary-content').style.display = 'none';
-      if(typeof loadOrders === 'function') loadOrders();
+      toast('toast-admin', '✅ 리셋 완료! 오더 ' + r.ordersDeleted + '건, 런 ' + r.runsDeleted + '건 archive 저장', true);
+      addResetLog('🔄 리셋 완료 — 오더 ' + r.ordersDeleted + '건 + 런 ' + r.runsDeleted + '건 archive 저장');
+      var sc = document.getElementById('eod-summary-content');
+      if(sc) sc.style.display = 'none';
+      loadOrders();
     }
-  } catch(e) { btn.textContent = '전체 리셋 (오더+런)'; btn.disabled = false; }
+  } catch(e) {
+    if(btn) { btn.textContent = origText; btn.disabled = false; }
+    toast('toast-admin', '오류: ' + e.message, false);
+  }
+}
+
+async function fullWipeAll() {
+  if(!confirm('⚠ 경고!\n\nArchive 포함 모든 데이터를 완전 삭제합니다.\n이 작업은 되돌릴 수 없습니다.\n\n정말 삭제하시겠어요?')) return;
+  if(!confirm('마지막 확인: 정말로 모든 데이터를 삭제하시겠어요?')) return;
+  var btn = document.querySelector('[onclick="fullWipeAll()"]');
+  if(btn) { btn.textContent = '⏳ 삭제중...'; btn.disabled = true; }
+  try {
+    var r = await apiPost('fullWipe', {});
+    if(btn) { btn.textContent = '🗑 전체 데이터 완전 삭제 (Archive 포함)'; btn.disabled = false; }
+    if(r && r.success) {
+      toast('toast-admin', '전체 삭제 완료', true);
+      addResetLog('🗑 전체 완전 삭제 (Archive 포함)');
+      loadOrders();
+    }
+  } catch(e) {
+    if(btn) { btn.textContent = '🗑 전체 데이터 완전 삭제 (Archive 포함)'; btn.disabled = false; }
+    toast('toast-admin', '오류: ' + e.message, false);
+  }
 }
 
 async function clearTodayData() {
-  // Legacy function
   resetAllToday();
 }
 
@@ -2465,55 +2512,6 @@ function addResetLog(msg) {
   if(el.querySelector('.empty')) el.innerHTML = '';
   el.innerHTML = item + el.innerHTML;
 }
-
-// ---- AUTO RESET at 22:00 ----
-(function() {
-  function checkAutoReset() {
-    var now = new Date();
-    var h = now.getHours();
-    var m = now.getMinutes();
-
-    // Update countdown display
-    var countEl = document.getElementById('auto-reset-countdown');
-    if(countEl) {
-      var resetHour = 22;
-      var minsUntil = (resetHour * 60) - (h * 60 + m);
-      if(minsUntil < 0) minsUntil += 24 * 60;
-      if(minsUntil <= 60) {
-        countEl.textContent = '(약 ' + minsUntil + '분 후)';
-        countEl.style.color = '#DC2626';
-      } else {
-        var hLeft = Math.floor(minsUntil / 60);
-        var mLeft = minsUntil % 60;
-        countEl.textContent = '(' + hLeft + '시간 ' + mLeft + '분 후)';
-        countEl.style.color = '#92400E';
-      }
-    }
-
-    // Trigger at exactly 22:00
-    if(h === 22 && m === 0) {
-      var lastReset = localStorage.getItem('hmart_last_auto_reset');
-      var today = new Date().toLocaleDateString('en-CA');
-      if(lastReset !== today) {
-        localStorage.setItem('hmart_last_auto_reset', today);
-        console.log('[Auto Reset] 오후 10시 자동 리셋 시작...');
-        apiPost('resetAllToday', {}).then(function(r) {
-          if(r && r.success) {
-            console.log('[Auto Reset] 완료 — 오더 ' + r.ordersDeleted + '건, 런 ' + r.runsDeleted + '건');
-            showNetworkStatus('🔄 오후 10시 자동 리셋 완료!', 'green');
-            addResetLog('⏰ 자동 리셋 — 오더 ' + r.ordersDeleted + '건, 런 ' + r.runsDeleted + '건');
-            if(typeof loadOrders === 'function') loadOrders();
-          }
-        });
-      }
-    }
-  }
-
-  // Check every minute
-  setInterval(checkAutoReset, 60000);
-  // Initial check
-  setTimeout(checkAutoReset, 2000);
-})();
 
 // ---- ADMIN ----
 function checkPin() {
