@@ -198,15 +198,13 @@ html{width:100%;overflow-x:hidden}
 </head>
 <body>
 
-<!-- Firebase SDK -->
-<script type="module">
+<!-- Firebase SDK (compat version — works globally across all scripts) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script>
 // ============================================================
-// FIREBASE CONFIG — Replace with your project's config
+// FIREBASE INIT
 // ============================================================
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getDatabase, ref, get, set, push, update, remove, query, orderByChild, equalTo, limitToLast }
-  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
-
 const FIREBASE_CONFIG = {
   apiKey:            "AIzaSyBKMUIoQboWo6RZx0IQS7zv2TGaSlbaH0o",
   authDomain:        "hmart-delivery.firebaseapp.com",
@@ -217,32 +215,42 @@ const FIREBASE_CONFIG = {
   appId:             "1:437157381069:web:5f294733e7e1a863853a84"
 };
 
-const app = initializeApp(FIREBASE_CONFIG);
-const db  = getDatabase(app);
+firebase.initializeApp(FIREBASE_CONFIG);
+var _db = firebase.database();
 
 // ── Helpers ──────────────────────────────────────────────────
-function todayStr() {
-  return new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
-}
-function nowTimeStr() {
-  var d = new Date();
-  return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
-}
-function uid() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2,6);
-}
-// Convert Firebase object {key:{...}} → sorted array
-function objToArr(obj, sortKey) {
-  if(!obj) return [];
-  var arr = Object.entries(obj).map(function([k,v]) { return Object.assign({ _fbKey: k }, v); });
-  if(sortKey) arr.sort(function(a,b) { return (a[sortKey]||'') > (b[sortKey]||'') ? 1 : -1; });
-  return arr;
-}
+window._fb = {
+  todayStr: function() {
+    return new Date().toLocaleDateString('en-CA');
+  },
+  nowTimeStr: function() {
+    var d = new Date();
+    return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+  },
+  uid: function() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+  },
+  objToArr: function(obj, sortKey) {
+    if(!obj) return [];
+    var arr = Object.keys(obj).map(function(k) {
+      return Object.assign({ _fbKey: k }, obj[k]);
+    });
+    if(sortKey) arr.sort(function(a,b) { return (a[sortKey]||'') > (b[sortKey]||'') ? 1 : -1; });
+    return arr;
+  },
+  // Firebase database helpers
+  ref: function(path) { return _db.ref(path); },
+  get: function(ref) { return ref.once('value').then(function(s) { return s; }); },
+  set: function(ref, val) { return ref.set(val); },
+  push: function(ref, val) { return ref.push(val); },
+  update: function(ref, val) { return ref.update(val); },
+  remove: function(ref) { return ref.remove(); },
+  limitToLast: function(ref, n) { return ref.limitToLast(n); }
+};
 
-// ── Expose db + helpers to window (for non-module scripts) ───
-window._fb = { db, ref, get, set, push, update, remove, query, orderByChild, equalTo, limitToLast,
-               todayStr, nowTimeStr, uid, objToArr };
+window._fbReady = true;
 window.dispatchEvent(new Event('fb-ready'));
+console.log('[Firebase] Connected to:', FIREBASE_CONFIG.databaseURL);
 </script>
 
 <script>
@@ -288,20 +296,21 @@ async function syncOfflineQueue() {
 // apiGet — reads from Firebase Realtime Database
 // ============================================================
 async function apiGet(action, params) {
-  if(!_fbReady) await new Promise(function(r) { window.addEventListener('fb-ready', r, {once:true}); });
+  if(!window._fbReady) await new Promise(function(resolve) { window.addEventListener('fb-ready', resolve, {once:true}); });
   var fb = window._fb;
-  var db = fb.db; var r = fb.ref; var g = fb.get;
   var today = fb.todayStr();
+
+  // Helper: get a ref and return its value
+  async function dbGet(path) {
+    var snap = await fb.ref(path).once('value');
+    return snap.val();
+  }
 
   try {
     // ── getOfficeData ──────────────────────────────────────
     if(action === 'getOfficeData') {
-      var [ordSnap, runSnap] = await Promise.all([
-        g(r(db, 'hmart/orders')),
-        g(r(db, 'hmart/runs'))
-      ]);
-      var ordObj = ordSnap.val() || {};
-      var runObj = runSnap.val() || {};
+      var ordObj = await dbGet('hmart/orders') || {};
+      var runObj = await dbGet('hmart/runs')   || {};
       var orders = fb.objToArr(ordObj).filter(function(o) { return o.date === today; })
         .map(function(o, i) {
           return {
@@ -313,75 +322,71 @@ async function apiGet(action, params) {
             payment: o.payment||'Cash', billAmount: o.billAmount||''
           };
         });
-      var runs = fb.objToArr(runObj).filter(function(r) { return r.date === today; })
-        .map(function(r) {
+      var runs = fb.objToArr(runObj).filter(function(ru) { return ru.date === today; })
+        .map(function(ru) {
           return {
-            driver: r.driver||'', coDriver: r.coDriver||'',
-            vehicle: r.vehicle||'', plate: r.plate||'',
-            destination: r.destination||'', depKm: r.depKm||'',
-            depTime: r.depTime||'', arrKm: r.arrKm||'',
-            arrTime: r.arrTime||'', distKm: r.distKm||'',
-            remarks: r.remarks||'', status: r.status||'',
-            orderIds: r.orderIds || [], _fbKey: r._fbKey
+            driver: ru.driver||'', coDriver: ru.coDriver||'',
+            vehicle: ru.vehicle||'', plate: ru.plate||'',
+            destination: ru.destination||'', depKm: ru.depKm||'',
+            depTime: ru.depTime||'', arrKm: ru.arrKm||'',
+            arrTime: ru.arrTime||'', distKm: ru.distKm||'',
+            remarks: ru.remarks||'', status: ru.status||'',
+            orderIds: ru.orderIds || [], _fbKey: ru._fbKey
           };
         });
-      return { orders, runs };
+      return { orders: orders, runs: runs };
     }
 
     // ── getTodayOrders ─────────────────────────────────────
     if(action === 'getTodayOrders') {
-      var snap = await g(r(db, 'hmart/orders'));
-      return fb.objToArr(snap.val()).filter(function(o) { return o.date === today; })
+      var obj = await dbGet('hmart/orders') || {};
+      return fb.objToArr(obj).filter(function(o) { return o.date === today; })
         .map(function(o, i) { return Object.assign({ rowNum: i+1, orderId: o._fbKey }, o); });
     }
 
     // ── getVehicleStatus ───────────────────────────────────
     if(action === 'getVehicleStatus') {
-      var snap = await g(r(db, 'hmart/vehicles'));
-      return fb.objToArr(snap.val(), 'vehicle');
+      var obj = await dbGet('hmart/vehicles') || {};
+      return fb.objToArr(obj, 'vehicle');
     }
 
     // ── getFuelLogs ────────────────────────────────────────
     if(action === 'getFuelLogs') {
-      var snap = await g(fb.query(r(db,'hmart/fuel'), fb.limitToLast(30)));
+      var snap = await fb.ref('hmart/fuel').limitToLast(30).once('value');
       return fb.objToArr(snap.val()).reverse();
     }
 
     // ── getAdminSettings ──────────────────────────────────
     if(action === 'getAdminSettings') {
-      var [dSnap, vSnap] = await Promise.all([
-        g(r(db,'hmart/settings/drivers')),
-        g(r(db,'hmart/vehicles'))
-      ]);
-      return {
-        drivers:  dSnap.val() || ["ROMEL","ARNEL","MARK","EMAN","NIXON","AJ","VINCENT","BRAVOO","PRISCO"],
-        vehicles: fb.objToArr(vSnap.val(), 'vehicle')
-      };
+      var drivers  = await dbGet('hmart/settings/drivers') || ["ROMEL","ARNEL","MARK","EMAN","NIXON","AJ","VINCENT","BRAVOO","PRISCO"];
+      var vehObj   = await dbGet('hmart/vehicles') || {};
+      return { drivers: drivers, vehicles: fb.objToArr(vehObj, 'vehicle') };
     }
 
     // ── getDailyReport ─────────────────────────────────────
     if(action === 'getDailyReport') {
       var start = (params && params.startDate) || today;
       var end   = (params && params.endDate)   || start;
-      function inRange(d) { return d >= start && d <= end; }
-      var [ordSnap, runSnap, fuelSnap, chkSnap] = await Promise.all([
-        g(r(db,'hmart/orders')),
-        g(r(db,'hmart/runs')),
-        g(r(db,'hmart/fuel')),
-        g(r(db,'hmart/checklists'))
-      ]);
-      var orders     = fb.objToArr(ordSnap.val()).filter(function(o) { return inRange(o.date); });
-      var runs       = fb.objToArr(runSnap.val()).filter(function(r) { return inRange(r.date); });
-      var fuels      = fb.objToArr(fuelSnap.val()).filter(function(f) { return inRange(f.date); });
-      var checklists = fb.objToArr(chkSnap.val()).filter(function(c) { return inRange(c.date); });
-      return { startDate: start, endDate: end, orders, runs, fuels, checklists, summary: {} };
+      function inRange(d) { return d && d >= start && d <= end; }
+      var ordObj  = await dbGet('hmart/orders')     || {};
+      var runObj  = await dbGet('hmart/runs')        || {};
+      var fuelObj = await dbGet('hmart/fuel')        || {};
+      var chkObj  = await dbGet('hmart/checklists')  || {};
+      return {
+        startDate: start, endDate: end,
+        orders:     fb.objToArr(ordObj).filter(function(o)  { return inRange(o.date); }),
+        runs:       fb.objToArr(runObj).filter(function(ru) { return inRange(ru.date); }),
+        fuels:      fb.objToArr(fuelObj).filter(function(f) { return inRange(f.date); }),
+        checklists: fb.objToArr(chkObj).filter(function(c)  { return inRange(c.date); }),
+        summary: {}
+      };
     }
 
     console.warn('apiGet: unknown action', action);
     return null;
   } catch(e) {
     console.error('apiGet error:', action, e);
-    showNetworkStatus('Error loading data', 'red');
+    showNetworkStatus('Error loading: ' + e.message, 'red');
     return null;
   }
 }
@@ -391,23 +396,33 @@ async function apiGet(action, params) {
 // ============================================================
 async function apiPost(action, data, _bypassQueue) {
   if(!_isOnline && !_bypassQueue) {
-    _offlineQueue.push({ action, data, ts: Date.now() });
+    _offlineQueue.push({ action: action, data: data, ts: Date.now() });
     saveQueue();
     showNetworkStatus('Saved locally — will sync when online', 'orange');
     return { success: true, offline: true };
   }
-  if(!_fbReady) await new Promise(function(r) { window.addEventListener('fb-ready', r, {once:true}); });
+  if(!window._fbReady) await new Promise(function(resolve) { window.addEventListener('fb-ready', resolve, {once:true}); });
   var fb = window._fb;
-  var db = fb.db; var r = fb.ref; var s = fb.set; var p = fb.push; var u = fb.update; var rm = fb.remove;
-  var today = fb.todayStr(); var now = fb.nowTimeStr(); var newId = fb.uid;
+  var today = fb.todayStr();
+  var now   = fb.nowTimeStr();
+  var newId = fb.uid;
+
+  // shorthand helpers
+  function dbRef(path)       { return fb.ref(path); }
+  function dbSet(path, val)  { return fb.ref(path).set(val); }
+  function dbPush(path, val) { return fb.ref(path).push(val); }
+  function dbUpdate(path, val) { return fb.ref(path).update(val); }
+  function dbRemove(path)    { return fb.ref(path).remove(); }
+  async function dbGet(path) { var s = await fb.ref(path).once('value'); return s.val(); }
 
   try {
     // ── addOrders ──────────────────────────────────────────
     if(action === 'addOrders') {
       var count = 0;
-      for(var ord of data) {
+      for(var i = 0; i < data.length; i++) {
+        var ord = data[i];
         var key = 'ORD-' + newId();
-        await s(r(db, 'hmart/orders/' + key), {
+        await dbSet('hmart/orders/' + key, {
           date: today, businessName: ord.businessName||'',
           invoiceNum: ord.invoiceNum||'', driver: ord.driver||'',
           billAmount: ord.billAmount||'', change: ord.change||'',
@@ -416,38 +431,37 @@ async function apiPost(action, data, _bypassQueue) {
         });
         count++;
       }
-      return { success: true, count };
+      return { success: true, count: count };
     }
 
     // ── assignDriver ───────────────────────────────────────
     if(action === 'assignDriver') {
-      await u(r(db, 'hmart/orders/' + data.orderId), { driver: data.driver });
+      await dbUpdate('hmart/orders/' + data.orderId, { driver: data.driver });
       return { success: true };
     }
 
     // ── deleteOrder ────────────────────────────────────────
     if(action === 'deleteOrder') {
-      await rm(r(db, 'hmart/orders/' + data.orderId));
+      await dbRemove('hmart/orders/' + data.orderId);
       return { success: true };
     }
 
     // ── setOrderInProgress ─────────────────────────────────
     if(action === 'setOrderInProgress') {
-      await u(r(db, 'hmart/orders/' + data.orderId), { status: 'IN PROGRESS' });
+      await dbUpdate('hmart/orders/' + data.orderId, { status: 'IN PROGRESS' });
       return { success: true };
     }
 
     // ── cancelOrderProgress ────────────────────────────────
     if(action === 'cancelOrderProgress') {
-      await u(r(db, 'hmart/orders/' + data.orderId), { status: 'PENDING' });
+      await dbUpdate('hmart/orders/' + data.orderId, { status: 'PENDING' });
       return { success: true };
     }
 
     // ── completeOrder ──────────────────────────────────────
     if(action === 'completeOrder') {
-      await u(r(db, 'hmart/orders/' + data.orderId), {
-        status: 'COMPLETED', completeTime: now,
-        change: data.change || ''
+      await dbUpdate('hmart/orders/' + data.orderId, {
+        status: 'COMPLETED', completeTime: now, change: data.change||''
       });
       return { success: true };
     }
@@ -458,61 +472,67 @@ async function apiPost(action, data, _bypassQueue) {
       if(data.billAmount !== undefined) upd.billAmount = data.billAmount;
       if(data.change     !== undefined) upd.change     = data.change;
       if(data.payment    !== undefined) upd.payment    = data.payment;
-      await u(r(db, 'hmart/orders/' + data.orderId), upd);
+      await dbUpdate('hmart/orders/' + data.orderId, upd);
       return { success: true };
     }
 
     // ── submitDeparture ────────────────────────────────────
     if(action === 'submitDeparture') {
       var runKey = 'RUN-' + newId();
-      await s(r(db, 'hmart/runs/' + runKey), {
+      await dbSet('hmart/runs/' + runKey, {
         date: today, depTime: now,
         driver: data.driver||'', coDriver: data.coDriver||'',
         vehicle: data.vehicle||'', plate: data.plate||'',
         destination: data.destination||'', depKm: data.depKm||0,
         arrKm: '', arrTime: '', distKm: 0, remarks: '',
-        status: 'IN PROGRESS',
-        orderIds: data.orderIds || []
+        status: 'IN PROGRESS', orderIds: data.orderIds||[]
       });
-      // Update vehicle last KM
-      if(data.plate) await u(r(db,'hmart/vehicles/' + data.plate.replace(/\s/g,'_')), { lastKm: data.depKm||0 });
-      return { success: true, runKey };
+      if(data.plate) {
+        var pKey = data.plate.replace(/\s/g,'_');
+        await dbUpdate('hmart/vehicles/' + pKey, { lastKm: data.depKm||0 });
+      }
+      return { success: true, runKey: runKey };
     }
 
     // ── submitArrival ──────────────────────────────────────
     if(action === 'submitArrival') {
-      // Find active run for this driver today
-      var snap = await fb.get(r(db,'hmart/runs'));
-      var runs = fb.objToArr(snap.val());
-      var activeRun = runs.find(function(ru) {
-        return ru.date === today && ru.driver === data.driver && ru.status === 'IN PROGRESS';
-      });
+      var runsObj = await dbGet('hmart/runs') || {};
+      var allRuns = fb.objToArr(runsObj);
+      var activeRun = null;
+      for(var j = 0; j < allRuns.length; j++) {
+        var ru = allRuns[j];
+        if(ru.date === today && ru.driver === data.driver && ru.status === 'IN PROGRESS') {
+          activeRun = ru; break;
+        }
+      }
       if(!activeRun) return { success: false, message: 'No active run found' };
-      var dep = parseFloat(activeRun.depKm) || 0;
-      var arr = parseFloat(data.arrKm) || 0;
-      var dist = arr > dep ? Math.round((arr - dep)*10)/10 : 0;
-      await u(r(db,'hmart/runs/' + activeRun._fbKey), {
+      var dep  = parseFloat(activeRun.depKm) || 0;
+      var arr  = parseFloat(data.arrKm) || 0;
+      var dist = arr > dep ? Math.round((arr-dep)*10)/10 : 0;
+      await dbUpdate('hmart/runs/' + activeRun._fbKey, {
         arrKm: arr, arrTime: now, distKm: dist,
         remarks: data.remarks||'', status: 'COMPLETED'
       });
-      if(activeRun.plate) await u(r(db,'hmart/vehicles/' + activeRun.plate.replace(/\s/g,'_')), { lastKm: arr });
+      if(activeRun.plate) {
+        var pKey2 = activeRun.plate.replace(/\s/g,'_');
+        await dbUpdate('hmart/vehicles/' + pKey2, { lastKm: arr });
+      }
       return { success: true, distance: dist };
     }
 
     // ── addFuelLog ─────────────────────────────────────────
     if(action === 'addFuelLog') {
-      await p(r(db,'hmart/fuel'), {
-        date: today, vehicle: data.vehicle||'',
-        driver: data.driver||'', liters: data.liters||0,
-        amount: data.amount||0, odometer: data.odometer||'',
-        station: data.station||''
+      await dbPush('hmart/fuel', {
+        date: today, vehicle: data.vehicle||'', driver: data.driver||'',
+        liters: data.liters||0, amount: data.amount||0,
+        odometer: data.odometer||'', station: data.station||''
       });
       return { success: true };
     }
 
     // ── submitChecklist ────────────────────────────────────
     if(action === 'submitChecklist') {
-      await p(r(db,'hmart/checklists'), {
+      await dbPush('hmart/checklists', {
         date: today, time: now,
         driver: data.driver||'', vehicle: data.vehicle||'',
         battery: data.Battery||'OK', lights: data.Lights||'OK',
@@ -527,14 +547,14 @@ async function apiPost(action, data, _bypassQueue) {
     // ── updateVehicleStatus ────────────────────────────────
     if(action === 'updateVehicleStatus') {
       var vKey = data.plate.replace(/\s/g,'_');
-      await u(r(db,'hmart/vehicles/' + vKey), { status: data.status, notes: data.notes||'' });
+      await dbUpdate('hmart/vehicles/' + vKey, { status: data.status, notes: data.notes||'' });
       return { success: true };
     }
 
     // ── addVehicleToSheet ──────────────────────────────────
     if(action === 'addVehicleToSheet') {
       var vKey2 = data.plate.replace(/\s/g,'_');
-      await s(r(db,'hmart/vehicles/' + vKey2), {
+      await dbSet('hmart/vehicles/' + vKey2, {
         vehicle: data.vehicle||'', plate: data.plate||'',
         status: data.status||'Active', lastKm: '', notes: ''
       });
@@ -544,57 +564,48 @@ async function apiPost(action, data, _bypassQueue) {
     // ── removeVehicleFromSheet ─────────────────────────────
     if(action === 'removeVehicleFromSheet') {
       var vKey3 = data.plate.replace(/\s/g,'_');
-      await rm(r(db,'hmart/vehicles/' + vKey3));
+      await dbRemove('hmart/vehicles/' + vKey3);
       return { success: true };
     }
 
     // ── saveAdminSettings ──────────────────────────────────
     if(action === 'saveAdminSettings') {
-      if(data.type === 'drivers') {
-        await s(r(db,'hmart/settings/drivers'), data.data);
-      } else if(data.type === 'storeName') {
-        await s(r(db,'hmart/settings/storeName'), data.data);
-      }
+      if(data.type === 'drivers')   await dbSet('hmart/settings/drivers', data.data);
+      if(data.type === 'storeName') await dbSet('hmart/settings/storeName', data.data);
       return { success: true };
     }
 
     // ── clearTodayCompleted ────────────────────────────────
     if(action === 'clearTodayCompleted') {
-      var [oSnap, rSnap] = await Promise.all([
-        fb.get(r(db,'hmart/orders')),
-        fb.get(r(db,'hmart/runs'))
-      ]);
-      var delTasks = [];
-      fb.objToArr(oSnap.val()).forEach(function(o) {
-        if(o.date === today && o.status === 'COMPLETED')
-          delTasks.push(rm(r(db,'hmart/orders/'+o._fbKey)));
+      var ordObj2 = await dbGet('hmart/orders') || {};
+      var runObj2 = await dbGet('hmart/runs')   || {};
+      var tasks = [];
+      fb.objToArr(ordObj2).forEach(function(o) {
+        if(o.date === today && o.status === 'COMPLETED') tasks.push(dbRemove('hmart/orders/'+o._fbKey));
       });
-      fb.objToArr(rSnap.val()).forEach(function(ru) {
-        if(ru.date === today && ru.status === 'COMPLETED')
-          delTasks.push(rm(r(db,'hmart/runs/'+ru._fbKey)));
+      fb.objToArr(runObj2).forEach(function(ru) {
+        if(ru.date === today && ru.status === 'COMPLETED') tasks.push(dbRemove('hmart/runs/'+ru._fbKey));
       });
-      await Promise.all(delTasks);
+      await Promise.all(tasks);
       return { success: true };
     }
 
     // ── exportToCSV ────────────────────────────────────────
     if(action === 'exportToCSV') {
-      var [oSnap2, rSnap2] = await Promise.all([
-        fb.get(r(db,'hmart/orders')),
-        fb.get(r(db,'hmart/runs'))
-      ]);
+      var ordObj3 = await dbGet('hmart/orders') || {};
+      var runObj3 = await dbGet('hmart/runs')   || {};
       var rows = [['Date','Driver','Vehicle','Dep KM','Arr KM','Distance','Status']];
-      fb.objToArr(rSnap2.val()).forEach(function(ru) {
+      fb.objToArr(runObj3).forEach(function(ru) {
         rows.push([ru.date,ru.driver,ru.vehicle,ru.depKm,ru.arrKm,ru.distKm,ru.status]);
       });
       rows.push([]); rows.push(['ORDER ID','Date','Business','Invoice','Driver','Payment','Change','Amount','Status','Time']);
-      fb.objToArr(oSnap2.val()).forEach(function(o) {
+      fb.objToArr(ordObj3).forEach(function(o) {
         rows.push([o._fbKey,o.date,o.businessName,o.invoiceNum,o.driver,o.payment,o.change,o.billAmount,o.status,o.completeTime]);
       });
       var csv = rows.map(function(row) {
         return row.map(function(c) { return '"'+String(c||'').replace(/"/g,'""')+'"'; }).join(',');
       }).join('\n');
-      return { success: true, csv };
+      return { success: true, csv: csv };
     }
 
     console.warn('apiPost: unknown action', action);
@@ -603,7 +614,7 @@ async function apiPost(action, data, _bypassQueue) {
   } catch(e) {
     console.error('apiPost error:', action, e);
     if(!_bypassQueue) {
-      _offlineQueue.push({ action, data, ts: Date.now() });
+      _offlineQueue.push({ action: action, data: data, ts: Date.now() });
       saveQueue();
       showNetworkStatus('Saved locally — will sync when online', 'orange');
       return { success: true, offline: true };
@@ -611,7 +622,6 @@ async function apiPost(action, data, _bypassQueue) {
     return { success: false, message: e.message };
   }
 }
-
 // ============================================================
 // UTILITIES (unchanged interface)
 // ============================================================
