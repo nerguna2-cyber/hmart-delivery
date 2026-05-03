@@ -4877,13 +4877,23 @@ function autoFillSchedule(driver) {
   var ciEl = document.getElementById('sc-ci-' + driver);
   var bsEl = document.getElementById('sc-bs-' + driver);
   var coEl = document.getElementById('sc-co-' + driver);
-  if(!ciEl || !ciEl.value.trim()) return;
+  if(!ciEl || ciEl.value.trim() === '') {
+    // Clear break and clockout if clockin is cleared
+    if(bsEl) bsEl.value = '';
+    if(coEl) coEl.value = '';
+    return;
+  }
   var h = parseInt(ciEl.value);
-  if(isNaN(h)) return;
-  var bh = (h + 4) % 24;
-  var ch = (h + 9) % 24;
-  if(bsEl && !bsEl.value.trim()) bsEl.value = bh;
-  if(coEl && !coEl.value.trim()) coEl.value = ch;
+  if(isNaN(h) || h < 0 || h > 23) return;
+  // Break = clockin + 4hrs, ClockOut = clockin + 9hrs
+  var bh = h + 4;
+  var ch = h + 9;
+  // Handle midnight rollover
+  if(bh >= 24) bh -= 24;
+  if(ch >= 24) ch -= 24;
+  // Always update break and clockout when clockin changes
+  if(bsEl) bsEl.value = bh;
+  if(coEl) coEl.value = ch;
 }
 
 function buildAttDriverTable() {
