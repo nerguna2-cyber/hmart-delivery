@@ -2206,7 +2206,6 @@ function buildOrderItemHTML(o, displayStatus) {
 
     // Row 2: Amount + payment (tap to edit if not completed)
     '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-      payBadge(o.payment || 'Cash') +
       (!isCompleted ?
         // Tappable payment badge
         '<span onclick="qeCyclePayment(\'' + o.orderId + '\', event)" id="qe-pay-badge-' + o.orderId + '" title="Tap to change payment" style="cursor:pointer;user-select:none">' + payBadge(o.payment || 'Cash') + '</span>' +
