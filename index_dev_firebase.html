@@ -3428,7 +3428,7 @@ function finalizeBreakTime(driver, nowStr, endStr) {
   var popup = document.getElementById('break-confirm-popup');
   if(popup) popup.remove();
 
-  // Save to actualBreaks
+  // Save to actualBreaks — immediately visible in Live Status
   var today = new Date().toLocaleDateString('en-CA');
   actualBreaks[driver] = nowStr;
   try { localStorage.setItem('hmart_actual_breaks_' + today, JSON.stringify(actualBreaks)); } catch(e) {}
@@ -3443,6 +3443,17 @@ function finalizeBreakTime(driver, nowStr, endStr) {
   }
 
   playSound('success');
+
+  // Immediately refresh Live Status if it's open
+  var liveEl = document.getElementById('tab-live');
+  if(liveEl && liveEl.classList.contains('active') && typeof loadLive === 'function') {
+    setTimeout(loadLive, 300);
+  }
+  // Also refresh attendance if open
+  var attEl = document.getElementById('tab-attendance');
+  if(attEl && attEl.classList.contains('active') && typeof loadAttendance === 'function') {
+    setTimeout(loadAttendance, 300);
+  }
 
   // Show warm completion message
   var msg = document.getElementById('break-done-msg');
@@ -4819,27 +4830,17 @@ function getDriverSched(driver) {
 function syncTimeField(fieldId) {
   var hEl   = document.getElementById(fieldId + '-h');
   var hidEl = document.getElementById(fieldId);
+  var amBtn = document.getElementById(fieldId + '-am');
+  var pmBtn = document.getElementById(fieldId + '-pm');
   if(!hEl || !hidEl) return;
   var h12 = parseInt(hEl.value);
   if(!h12 || h12 < 1 || h12 > 12) { hidEl.value = ''; return; }
-  // Get AM/PM state
-  var amBtn = document.getElementById(fieldId + '-am');
-  var pmBtn = document.getElementById(fieldId + '-pm');
-  // Default: no selection yet → pick based on common sense
-  var isAM = amBtn && amBtn.style.backgroundColor === 'rgb(31, 78, 121)';
-  var isPM = pmBtn && pmBtn.style.backgroundColor === 'rgb(31, 78, 121)';
-  if(!isAM && !isPM) {
-    // Auto-select: 1-7 = AM if not yet set, 8-12 = AM too unless explicitly PM
-    isAM = true; isPM = false;
-    setAmPm(fieldId, 'AM');
-    return; // setAmPm will call syncTimeField again
-  }
+  var isPM = pmBtn && pmBtn.dataset.active === '1';
   var h24 = isPM ? (h12 === 12 ? 12 : h12 + 12) : (h12 === 12 ? 0 : h12);
   hidEl.value = String(h24).padStart(2,'0') + ':00';
-  // Trigger auto-fill for clockin
-  var driverName = fieldId.replace('sc-ci-','');
+  // Auto-fill break and clockout when clockin changes
   if(fieldId.indexOf('sc-ci-') === 0) {
-    autoFillSchedule(driverName);
+    autoFillSchedule(fieldId.replace('sc-ci-',''));
   }
 }
 
@@ -4847,14 +4848,14 @@ function setAmPm(fieldId, ampm) {
   var amBtn = document.getElementById(fieldId + '-am');
   var pmBtn = document.getElementById(fieldId + '-pm');
   if(!amBtn || !pmBtn) return;
-  var activeStyle  = 'background:#1F4E79;color:#fff;border-color:#1F4E79';
-  var inactiveStyle= 'background:#fff;color:#64748B;border-color:#D1D5DB';
+  var sel = 'background:#1F4E79;color:#fff;border:1px solid #1F4E79;border-radius:3px;padding:3px 6px;font-size:11px;font-weight:700;cursor:pointer';
+  var off = 'background:#fff;color:#64748B;border:1px solid #D1D5DB;border-radius:3px;padding:3px 6px;font-size:11px;font-weight:700;cursor:pointer';
   if(ampm === 'AM') {
-    amBtn.setAttribute('style', amBtn.getAttribute('style').replace(/background:[^;]+;color:[^;]+;border:[^;]+/, '') + ';background:#1F4E79;color:#fff;border:1px solid #1F4E79');
-    pmBtn.setAttribute('style', pmBtn.getAttribute('style').replace(/background:[^;]+;color:[^;]+;border:[^;]+/, '') + ';background:#fff;color:#64748B;border:1px solid #D1D5DB');
+    amBtn.setAttribute('style', sel); amBtn.dataset.active = '1';
+    pmBtn.setAttribute('style', off); pmBtn.dataset.active = '0';
   } else {
-    pmBtn.setAttribute('style', pmBtn.getAttribute('style').replace(/background:[^;]+;color:[^;]+;border:[^;]+/, '') + ';background:#1F4E79;color:#fff;border:1px solid #1F4E79');
-    amBtn.setAttribute('style', amBtn.getAttribute('style').replace(/background:[^;]+;color:[^;]+;border:[^;]+/, '') + ';background:#fff;color:#64748B;border:1px solid #D1D5DB');
+    pmBtn.setAttribute('style', sel); pmBtn.dataset.active = '1';
+    amBtn.setAttribute('style', off); amBtn.dataset.active = '0';
   }
   syncTimeField(fieldId);
 }
@@ -4866,19 +4867,34 @@ function getTimeFieldVal(fieldId) {
 
 function autoFillSchedule(driver) {
   var ciVal = getTimeFieldVal('sc-ci-' + driver);
-  var bsEl  = document.getElementById('sc-bs-' + driver);
-  var coEl  = document.getElementById('sc-co-' + driver);
   if(!ciVal) return;
-  var parts = ciVal.split(':');
-  var h = parseInt(parts[0]);
-  var m = parseInt(parts[1]||0);
-  var breakH    = h + 4;
-  var clockoutH = h + 9;
-  if(breakH    >= 24) breakH    -= 24;
-  if(clockoutH >= 24) clockoutH -= 24;
-  var fmt = function(hr, mn) { return String(hr).padStart(2,'0') + ':' + String(mn||0).padStart(2,'0'); };
-  if(bsEl && !bsEl.value) bsEl.value = fmt(breakH, m);
-  if(coEl && !coEl.value) coEl.value = fmt(clockoutH, m);
+  var h = parseInt(ciVal.split(':')[0]);
+
+  var breakH    = h + 4; if(breakH    >= 24) breakH    -= 24;
+  var clockoutH = h + 9; if(clockoutH >= 24) clockoutH -= 24;
+
+  // Set break hidden input + update widget display
+  var bsHid = document.getElementById('sc-bs-' + driver);
+  var coHid = document.getElementById('sc-co-' + driver);
+  if(bsHid && !bsHid.value) {
+    bsHid.value = String(breakH).padStart(2,'0') + ':00';
+    _updateTimeWidget('sc-bs-' + driver, breakH);
+  }
+  if(coHid && !coHid.value) {
+    coHid.value = String(clockoutH).padStart(2,'0') + ':00';
+    _updateTimeWidget('sc-co-' + driver, clockoutH);
+  }
+}
+
+function _updateTimeWidget(fieldId, h24) {
+  var hEl   = document.getElementById(fieldId + '-h');
+  var amBtn = document.getElementById(fieldId + '-am');
+  var pmBtn = document.getElementById(fieldId + '-pm');
+  if(!hEl) return;
+  var isPM = h24 >= 12;
+  var h12  = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+  hEl.value = h12;
+  setAmPm(fieldId, isPM ? 'PM' : 'AM');
 }
 
 function buildAttDriverTable() {
@@ -4900,30 +4916,32 @@ function buildAttDriverTable() {
       var tabTarget = nextDriver ? 'sc-ci-h-' + nextDriver : 'att-save-btn';
 
       function timeWidget(fieldId, val, borderColor, disabled, tabNext) {
-        // Parse existing value HH:MM
-        var h24 = 0, mm = '00';
+        var h24 = 0, hStr = '', ampm = 'AM';
         if(val) {
           var p = val.split(':');
-          h24 = parseInt(p[0])||0;
-          mm  = p[1] || '00';
+          h24   = parseInt(p[0])||0;
+          var h12 = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+          hStr  = String(h12);
+          ampm  = h24 >= 12 ? 'PM' : 'AM';
         }
-        var ampm = h24 < 12 ? 'AM' : 'PM';
-        var h12  = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
-        var hStr = val ? String(h12) : '';
-        var dis  = disabled ? 'disabled' : '';
-        var op   = disabled ? 'opacity:0.4;' : '';
-        return '<div style="display:flex;align-items:center;gap:3px;' + op + '">' +
-          '<input type="number" id="' + fieldId + '-h" value="' + hStr + '" min="1" max="12" placeholder="H" inputmode="numeric" ' + dis +
-            ' onchange="syncTimeField(\'' + fieldId + '\')"' +
+        var dis = disabled ? 'disabled' : '';
+        var op  = disabled ? 'opacity:0.4;' : '';
+        var selStyle = 'background:#1F4E79;color:#fff;border:1px solid #1F4E79;border-radius:3px;padding:3px 6px;font-size:11px;font-weight:700;cursor:pointer';
+        var offStyle = 'background:#fff;color:#64748B;border:1px solid #D1D5DB;border-radius:3px;padding:3px 6px;font-size:11px;font-weight:700;cursor:pointer';
+        var amStyle  = (val && ampm === 'AM') ? selStyle : offStyle;
+        var pmStyle  = (val && ampm === 'PM') ? selStyle : offStyle;
+        var amActive = (val && ampm === 'AM') ? '1' : '0';
+        var pmActive = (val && ampm === 'PM') ? '1' : '0';
+        return '<div style="display:flex;align-items:center;gap:4px;' + op + '">' +
+          '<input type="number" id="' + fieldId + '-h" value="' + hStr + '" min="1" max="12" ' +
+            'placeholder="H" inputmode="numeric" ' + dis +
             ' oninput="syncTimeField(\'' + fieldId + '\')"' +
             (tabNext ? ' onkeydown="if(event.key===\'Tab\'){event.preventDefault();var nx=document.getElementById(\'' + tabNext + '\');if(nx)nx.focus();}"' : '') +
-            ' style="width:38px;padding:5px 4px;border:1.5px solid ' + borderColor + ';border-radius:5px;font-size:13px;text-align:center;-moz-appearance:textfield;">' +
-          '<span style="font-size:11px;color:#94A3B8">:00</span>' +
+            ' style="width:40px;padding:5px 4px;border:1.5px solid ' + borderColor + ';border-radius:5px;font-size:14px;font-weight:700;text-align:center;-moz-appearance:textfield">' +
+          '<span style="font-size:12px;color:#94A3B8;font-weight:600">:00</span>' +
           '<div style="display:flex;flex-direction:column;gap:2px">' +
-            '<button type="button" onclick="setAmPm(\'' + fieldId + '\',\'AM\')" id="' + fieldId + '-am" ' + dis +
-              ' style="padding:2px 5px;font-size:10px;font-weight:700;border-radius:3px;cursor:pointer;border:1px solid ' + (ampm==='AM'&&val?'#1F4E79':'#D1D5DB') + ';background:' + (ampm==='AM'&&val?'#1F4E79':'#fff') + ';color:' + (ampm==='AM'&&val?'#fff':'#64748B') + '">AM</button>' +
-            '<button type="button" onclick="setAmPm(\'' + fieldId + '\',\'PM\')" id="' + fieldId + '-pm" ' + dis +
-              ' style="padding:2px 5px;font-size:10px;font-weight:700;border-radius:3px;cursor:pointer;border:1px solid ' + (ampm==='PM'&&val?'#1F4E79':'#D1D5DB') + ';background:' + (ampm==='PM'&&val?'#1F4E79':'#fff') + ';color:' + (ampm==='PM'&&val?'#fff':'#64748B') + '">PM</button>' +
+            '<button type="button" id="' + fieldId + '-am" data-active="' + amActive + '" onclick="setAmPm(\'' + fieldId + '\',\'AM\')" ' + dis + ' style="' + amStyle + '">AM</button>' +
+            '<button type="button" id="' + fieldId + '-pm" data-active="' + pmActive + '" onclick="setAmPm(\'' + fieldId + '\',\'PM\')" ' + dis + ' style="' + pmStyle + '">PM</button>' +
           '</div>' +
           '<input type="hidden" id="' + fieldId + '" value="' + (val||'') + '">' +
         '</div>';
