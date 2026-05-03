@@ -1804,51 +1804,113 @@ function addFastRow() {
   div.className = 'fast-row';
   div.innerHTML =
     '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">' +
-      '<span style="font-size:13px;font-weight:600;color:#1F4E79">Order #' + id + '</span>' +
-      '<button class="btn-danger-off" onclick="removeFR(' + id + ')">Remove</button>' +
+      '<span style="font-size:13px;font-weight:700;color:#1F4E79">Order #' + id + '</span>' +
+      (id > 1 ? '<button class="btn-danger-off" onclick="removeFR(' + id + ')">Remove</button>' : '') +
     '</div>' +
+
+    // Row 1: Business Name + Invoice
     '<div class="row2" style="margin-bottom:8px">' +
-      '<div><div class="fast-label">Business Name *</div><input type="text" id="fr-n-' + id + '" placeholder="e.g. ONE PACIFIC"></div>' +
-      '<div><div class="fast-label">Invoice # (opt)</div><input type="text" id="fr-i-' + id + '" placeholder="INV-001"></div>' +
+      '<div>' +
+        '<div class="fast-label">Business Name *</div>' +
+        '<input type="text" id="fr-n-' + id + '" placeholder="e.g. ONE PACIFIC" autocomplete="off" ' +
+          'onkeydown="if(event.key===\'Tab\'){event.preventDefault();document.getElementById(\'fr-i-' + id + '\').focus();}">' +
+      '</div>' +
+      '<div>' +
+        '<div class="fast-label">Invoice # <span style="color:#94A3B8;font-weight:400">(opt)</span></div>' +
+        '<input type="text" id="fr-i-' + id + '" placeholder="INV-001" autocomplete="off" ' +
+          'onkeydown="if(event.key===\'Tab\'){event.preventDefault();document.getElementById(\'fr-b-' + id + '\').focus();}">' +
+      '</div>' +
     '</div>' +
+
+    // Row 2: Driver + Bill Amount
     '<div class="row2" style="margin-bottom:8px">' +
-      '<div><div class="fast-label">Assign Driver</div><select id="fr-d-' + id + '"><option value="">Unassigned</option>' +
-        DRIVERS.filter(function(d) {
-          var sc = getDriverSched(d);
-          if(sc && sc.dayOff) return false;
-          if(_activeDrivers.indexOf(d) > -1) return false; // on a run
-          return true;
-        }).map(function(d) { return '<option>' + d + '</option>'; }).join('') +
-      '</select></div>' +
-      '<div><div class="fast-label">Bill Amount P</div><input type="number" id="fr-b-' + id + '" placeholder="0" inputmode="numeric" oninput="frCalc(' + id + ')"></div>' +
+      '<div>' +
+        '<div class="fast-label">Assign Driver</div>' +
+        '<select id="fr-d-' + id + '">' +
+          '<option value="">Unassigned</option>' +
+          DRIVERS.filter(function(d) {
+            var sc = getDriverSched(d);
+            if(sc && sc.dayOff) return false;
+            if(_activeDrivers.indexOf(d) > -1) return false;
+            return true;
+          }).map(function(d) { return '<option>' + d + '</option>'; }).join('') +
+        '</select>' +
+      '</div>' +
+      '<div>' +
+        '<div class="fast-label">Bill Amount P <span style="color:#94A3B8;font-weight:400">(opt)</span></div>' +
+        '<input type="number" id="fr-b-' + id + '" placeholder="Leave blank if unknown" inputmode="numeric" oninput="frCalc(' + id + ')" ' +
+          'onkeydown="if(event.key===\'Tab\'){event.preventDefault();document.getElementById(\'fr-notes-' + id + '\').focus();}">' +
+      '</div>' +
     '</div>' +
-    '<div class="row2" style="margin-bottom:8px">' +
-      '<div><div class="fast-label">Given P (opt)</div><input type="number" id="fr-g-' + id + '" placeholder="auto" inputmode="numeric" oninput="frCalc(' + id + ')"></div>' +
-      '<div><div class="fast-label">Change P</div><input type="number" id="fr-c-' + id + '" placeholder="auto" readonly style="background:#F0FDF4;font-weight:600;color:#065F46"></div>' +
-    '</div>' +
-    '<div style="margin-bottom:8px"><div class="fast-label">Payment Method</div>' +
+
+    // Payment Method
+    '<div style="margin-bottom:8px">' +
+      '<div class="fast-label">Payment Method</div>' +
       '<div class="payment-opts" id="fr-pay-' + id + '">' +
         PAYMENTS.map(function(p, i) {
           return '<div class="payment-opt' + (i === 0 ? ' sel' : '') + '" onclick="selPayment(' + id + ',\'' + p + '\')">' + p + '</div>';
         }).join('') +
       '</div>' +
     '</div>' +
-    '<div><div class="fast-label">Notes (opt)</div><input type="text" id="fr-notes-' + id + '" placeholder="e.g. Go here first..."></div>';
+
+    // Change display (auto, shown only when amount entered)
+    '<div id="fr-chg-wrap-' + id + '" style="display:none;background:#F0FDF4;border-radius:6px;padding:7px 10px;margin-bottom:8px;font-size:13px;color:#065F46;font-weight:600">' +
+      'Change: <span id="fr-c-' + id + '">P0</span>' +
+      ' &nbsp;<button onclick="toggleGiven(' + id + ')" style="font-size:11px;color:#64748B;background:none;border:none;cursor:pointer;text-decoration:underline">custom given ▾</button>' +
+    '</div>' +
+
+    // Given P — hidden by default, toggle on click
+    '<div id="fr-given-wrap-' + id + '" style="display:none;margin-bottom:8px">' +
+      '<div class="fast-label">Given P <span style="color:#94A3B8;font-weight:400">(custom)</span></div>' +
+      '<input type="number" id="fr-g-' + id + '" placeholder="Enter given amount" inputmode="numeric" oninput="frCalc(' + id + ')">' +
+    '</div>' +
+
+    // Notes
+    '<div>' +
+      '<div class="fast-label">Notes <span style="color:#94A3B8;font-weight:400">(opt)</span></div>' +
+      '<input type="text" id="fr-notes-' + id + '" placeholder="e.g. Go here first...">' +
+    '</div>';
+
   document.getElementById('fast-rows').appendChild(div);
+  // Focus business name on new row
+  setTimeout(function() {
+    var el = document.getElementById('fr-n-' + id);
+    if(el) el.focus();
+  }, 50);
 }
 
 function removeFR(id) { var el = document.getElementById('fr-' + id); if(el) el.remove(); delete rowPayment[id]; }
 
+function toggleGiven(id) {
+  var wrap = document.getElementById('fr-given-wrap-' + id);
+  if(!wrap) return;
+  var isOpen = wrap.style.display !== 'none';
+  wrap.style.display = isOpen ? 'none' : 'block';
+  if(!isOpen) {
+    var el = document.getElementById('fr-g-' + id);
+    if(el) el.focus();
+  }
+}
+
 function frCalc(id) {
-  var bill = parseFloat(document.getElementById('fr-b-' + id).value) || 0;
-  var given = parseFloat(document.getElementById('fr-g-' + id).value) || 0;
-  var cEl = document.getElementById('fr-c-' + id);
-  var pay = rowPayment[id] || 'Cash';
-  if(pay !== 'Cash') { cEl.value = ''; cEl.placeholder = pay === 'Credit' ? 'N/A (Credit)' : 'N/A'; cEl.style.background = '#F9FAFB'; return; }
-  cEl.style.background = '#F0FDF4';
-  if(bill <= 0) { cEl.value = ''; return; }
-  var base = given >= bill ? given : roundUpK(bill);
-  cEl.value = Math.round(base - bill);
+  var billEl  = document.getElementById('fr-b-' + id);
+  var givenEl = document.getElementById('fr-g-' + id);
+  var chgEl   = document.getElementById('fr-c-' + id);
+  var wrapEl  = document.getElementById('fr-chg-wrap-' + id);
+  var bill  = parseFloat(billEl  ? billEl.value  : 0) || 0;
+  var given = parseFloat(givenEl ? givenEl.value : 0) || 0;
+  var pay   = rowPayment[id] || 'Cash';
+
+  if(!wrapEl) return; // old-style fallback
+  if(pay !== 'Cash' || bill <= 0) {
+    wrapEl.style.display = 'none';
+    if(chgEl) chgEl.textContent = 'P0';
+    return;
+  }
+  var base   = given >= bill ? given : roundUpK(bill);
+  var change = Math.round(base - bill);
+  if(chgEl) chgEl.textContent = 'P' + change;
+  wrapEl.style.display = 'block';
 }
 
 function selPayment(id, p) {
@@ -1873,7 +1935,12 @@ async function saveAllOrders() {
       invoiceNum:   document.getElementById('fr-i-' + i).value.trim(),
       driver:       document.getElementById('fr-d-' + i).value,
       billAmount:   document.getElementById('fr-b-' + i).value || '',
-      change:       document.getElementById('fr-c-' + i).value || '',
+      change:       (function() {
+        var chgEl = document.getElementById('fr-c-' + i);
+        if(!chgEl) return '';
+        var txt = chgEl.textContent || chgEl.value || '';
+        return txt.replace('P','').trim() || '';
+      })(),
       payment:      rowPayment[i] || 'Cash',
       notes:        document.getElementById('fr-notes-' + i).value.trim()
     });
@@ -3304,6 +3371,40 @@ async function loadLive() {
 
     var html = '';
     var active = runs.filter(function(r) { return r.status === 'IN PROGRESS'; });
+
+    // ── PENDING ORDERS (not yet departed) ──
+    var pendingOrds = orders.filter(function(o) {
+      return o.status === 'PENDING' && !_onTheWayIds[o.orderId];
+    });
+    if(pendingOrds.length) {
+      var nowMins = new Date().getHours()*60 + new Date().getMinutes();
+      html += '<div class="section-label" style="color:#D97706">⏳ Waiting to Depart (' + pendingOrds.length + ')</div>';
+      html += '<div style="display:grid;gap:8px;margin-bottom:16px">';
+      pendingOrds.forEach(function(o) {
+        var waitMins = 0;
+        if(o.createdTime) {
+          var ct = o.createdTime.split(':');
+          var ctMins = parseInt(ct[0])*60 + parseInt(ct[1]);
+          waitMins = nowMins - ctMins;
+          if(waitMins < 0) waitMins = 0;
+        }
+        var urgColor = waitMins >= 60 ? '#DC2626' : waitMins >= 30 ? '#F59E0B' : '#64748B';
+        var urgBg    = waitMins >= 60 ? '#FEF2F2' : waitMins >= 30 ? '#FFFBEB' : '#fff';
+        html += '<div style="background:' + urgBg + ';border:1px solid #E2E8F0;border-left:3px solid ' + urgColor + ';border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+          '<div style="flex:1;min-width:0">' +
+            '<span style="font-size:14px;font-weight:700">' + o.businessName + '</span>' +
+            (o.invoiceNum ? '<span style="font-size:11px;color:#059669;background:#D1FAE5;padding:1px 6px;border-radius:4px;margin-left:6px">' + o.invoiceNum + '</span>' : '') +
+          '</div>' +
+          '<div style="display:flex;gap:8px;align-items:center;flex-shrink:0">' +
+            payBadge(o.payment||'Cash') +
+            (o.billAmount ? '<span style="font-size:13px;font-weight:600;color:#1F4E79">P' + o.billAmount + '</span>' : '') +
+            (o.driver ? '<span style="font-size:12px;font-weight:600;color:#7C3AED;background:#EDE9FE;padding:2px 8px;border-radius:20px">' + o.driver + '</span>' : '<span style="font-size:11px;color:#94A3B8">Unassigned</span>') +
+            (waitMins > 0 ? '<span style="font-size:11px;font-weight:700;color:' + urgColor + '">' + waitMins + ' min</span>' : '') +
+          '</div>' +
+        '</div>';
+      });
+      html += '</div>';
+    }
 
     // ── ACTIVE RUNS ──
     if(active.length) {
