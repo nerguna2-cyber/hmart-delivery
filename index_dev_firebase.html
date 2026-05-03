@@ -854,6 +854,74 @@ function showNetworkStatus(msg, color) {
             </select>
           </div>
         </div>
+        <!-- Fuel entry shortcut -->
+        <div style="margin-top:12px">
+          <button onclick="showDrvFuelScreen()" style="width:100%;padding:16px;background:#fff;border:2px solid #E2E8F0;border-radius:12px;font-size:15px;font-weight:600;color:#374151;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px">
+            <span style="font-size:22px">⛽</span> Fuel Log
+          </button>
+        </div>
+      </div>
+
+      <!-- FUEL ENTRY SCREEN -->
+      <div id="drv-fuel-screen" style="display:none">
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <div style="font-size:17px;font-weight:700;color:#1F4E79">⛽ Fuel Log</div>
+            <button onclick="hideDrvFuelScreen()" class="btn-sm">← Back</button>
+          </div>
+
+          <div class="field">
+            <label>Driver</label>
+            <select id="drv-fuel-driver" style="width:100%;padding:12px;border:1px solid #D1D5DB;border-radius:8px;font-size:15px">
+              <option value="">-- Select Driver --</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Vehicle</label>
+            <select id="drv-fuel-vehicle" onchange="drvFuelVehicleChanged()" style="width:100%;padding:12px;border:1px solid #D1D5DB;border-radius:8px;font-size:15px">
+              <option value="">-- Select Vehicle --</option>
+            </select>
+          </div>
+
+          <!-- Last km/L for this vehicle -->
+          <div id="drv-fuel-last-eff" style="display:none;background:#F5F3FF;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:#5B21B6"></div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+            <div class="field" style="margin:0">
+              <label>Liters</label>
+              <input type="number" id="drv-fuel-liters" placeholder="e.g. 20.5" inputmode="decimal" step="0.1" style="width:100%;padding:12px;border:1px solid #D1D5DB;border-radius:8px;font-size:15px" oninput="calcFuelEff()">
+            </div>
+            <div class="field" style="margin:0">
+              <label>Amount (P)</label>
+              <input type="number" id="drv-fuel-amount" placeholder="e.g. 1500" inputmode="numeric" style="width:100%;padding:12px;border:1px solid #D1D5DB;border-radius:8px;font-size:15px" oninput="calcFuelEff()">
+            </div>
+            <div class="field" style="margin:0">
+              <label>Odometer (km)</label>
+              <input type="number" id="drv-fuel-odo" placeholder="e.g. 91390" inputmode="numeric" style="width:100%;padding:12px;border:1px solid #D1D5DB;border-radius:8px;font-size:15px" oninput="calcFuelEff()">
+            </div>
+            <div class="field" style="margin:0">
+              <label>Station</label>
+              <input type="text" id="drv-fuel-station" placeholder="e.g. Shell, Petron" style="width:100%;padding:12px;border:1px solid #D1D5DB;border-radius:8px;font-size:15px">
+            </div>
+          </div>
+
+          <!-- Live efficiency calc -->
+          <div id="drv-fuel-eff-display" style="display:none;background:#EFF6FF;border-radius:8px;padding:12px;margin-bottom:16px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:center">
+              <div>
+                <div style="font-size:18px;font-weight:700;color:#1F4E79" id="drv-fuel-perliter">-</div>
+                <div style="font-size:11px;color:#64748B">P / Liter</div>
+              </div>
+              <div>
+                <div style="font-size:18px;font-weight:700;color:#7C3AED" id="drv-fuel-kmpl">-</div>
+                <div style="font-size:11px;color:#64748B">km / Liter (est.)</div>
+              </div>
+            </div>
+          </div>
+
+          <button onclick="drvSubmitFuel()" style="width:100%;padding:16px;background:#1F4E79;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer">⛽ Save Fuel Log</button>
+        </div>
       </div>
 
       <div id="drv-s2" style="display:none">
@@ -923,35 +991,6 @@ function showNetworkStatus(msg, color) {
                 <textarea id="drv-remarks" placeholder="Any issues..."></textarea>
               </div>
               <button class="btn-arrive" onclick="drvArrive()">Complete Run</button>
-
-              <!-- Fuel log - shown after arrival -->
-              <div id="drv-fuel-section" style="display:none;margin-top:20px;background:#EFF6FF;border-radius:12px;padding:16px;border:1px solid #BFDBFE">
-                <div style="font-size:14px;font-weight:700;color:#1F4E79;margin-bottom:4px">⛽ Did you refuel today?</div>
-                <div style="font-size:12px;color:#64748B;margin-bottom:12px">Record it here while you remember</div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
-                  <div>
-                    <label style="font-size:12px;color:#64748B;display:block;margin-bottom:4px">Liters</label>
-                    <input type="number" id="drv-fuel-liters" placeholder="e.g. 20" inputmode="decimal" step="0.1" style="width:100%;padding:10px;border:1px solid #BFDBFE;border-radius:8px;font-size:14px">
-                  </div>
-                  <div>
-                    <label style="font-size:12px;color:#64748B;display:block;margin-bottom:4px">Amount (P)</label>
-                    <input type="number" id="drv-fuel-amount" placeholder="e.g. 1500" inputmode="numeric" style="width:100%;padding:10px;border:1px solid #BFDBFE;border-radius:8px;font-size:14px" oninput="calcDrvFuelEfficiency()">
-                  </div>
-                  <div>
-                    <label style="font-size:12px;color:#64748B;display:block;margin-bottom:4px">Odometer (km)</label>
-                    <input type="number" id="drv-fuel-odo" placeholder="e.g. 91390" inputmode="numeric" style="width:100%;padding:10px;border:1px solid #BFDBFE;border-radius:8px;font-size:14px">
-                  </div>
-                  <div>
-                    <label style="font-size:12px;color:#64748B;display:block;margin-bottom:4px">Station</label>
-                    <input type="text" id="drv-fuel-station" placeholder="e.g. Shell" style="width:100%;padding:10px;border:1px solid #BFDBFE;border-radius:8px;font-size:14px">
-                  </div>
-                </div>
-                <div id="drv-fuel-efficiency" style="font-size:12px;color:#7C3AED;font-weight:600;margin-bottom:10px;display:none"></div>
-                <div style="display:grid;grid-template-columns:1fr auto;gap:8px">
-                  <button onclick="drvSubmitFuel()" style="padding:12px;background:#1F4E79;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">⛽ Save Fuel Log</button>
-                  <button onclick="document.getElementById('drv-fuel-section').style.display='none'" style="padding:12px;background:#F1F5F9;color:#64748B;border:none;border-radius:8px;font-size:13px;cursor:pointer">Skip</button>
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -2603,14 +2642,6 @@ async function drvArrive() {
       _curRunDepKm = null;
       playSound('complete');
       toast('drv-toast', 'Run completed! +' + r.distance + ' km', true);
-      // Show fuel entry section
-      var fuelSection = document.getElementById('drv-fuel-section');
-      if(fuelSection) {
-        // Pre-fill odometer with arrival KM
-        var odoEl = document.getElementById('drv-fuel-odo');
-        if(odoEl) odoEl.value = arr;
-        fuelSection.style.display = 'block';
-      }
       setTimeout(drvLoadData, 1500);
     } else {
       playSound('error');
@@ -2622,53 +2653,137 @@ async function drvArrive() {
   }
 }
 
-// ---- DRIVER FUEL ENTRY ----
-var _lastRunVehicle = null; // stores last run vehicle for fuel logging
+// ---- DRIVER FUEL SCREEN ----
+var _lastRunVehicle = null;
+var _vehicleFuelHistory = {};
 
-function calcDrvFuelEfficiency() {
+function showDrvFuelScreen() {
+  document.getElementById('drv-s1').style.display = 'none';
+  document.getElementById('drv-fuel-screen').style.display = 'block';
+  var dSel = document.getElementById('drv-fuel-driver');
+  if(dSel) {
+    dSel.innerHTML = '<option value="">-- Select Driver --</option>' +
+      DRIVERS.map(function(d) { return '<option>' + d + '</option>'; }).join('');
+  }
+  var vSel = document.getElementById('drv-fuel-vehicle');
+  if(vSel) {
+    vSel.innerHTML = '<option value="">-- Select Vehicle --</option>';
+    var vlist = (adminVehicles && adminVehicles.length) ? adminVehicles :
+      [{vehicle:'BIG PLUS',plate:'GAD 3842'},{vehicle:'LITE ACE',plate:'Z295'},
+       {vehicle:'G-LINK',plate:'CAK 3176'},{vehicle:'TRAVIZ MOALBOAL',plate:'GBE 4005'},
+       {vehicle:'LITE ACE',plate:'GBK 7550'},{vehicle:'LITE ACE',plate:'R475'},
+       {vehicle:'10 WHEELS',plate:'NAM 7510'},{vehicle:'FROZEN',plate:'GBE 5818'},
+       {vehicle:'HONDA BEAT',plate:'301 GAG'},{vehicle:'MIO MOTOR',plate:'G756 SM'}];
+    vlist.forEach(function(v) {
+      var opt = document.createElement('option');
+      opt.value = v.plate || v.vehicle;
+      opt.textContent = v.vehicle + (v.plate ? ' (' + v.plate + ')' : '');
+      opt.dataset.vehicle = v.vehicle; opt.dataset.plate = v.plate||'';
+      opt.dataset.lastKm = v.lastKm||'';
+      vSel.appendChild(opt);
+    });
+  }
+  ['drv-fuel-liters','drv-fuel-amount','drv-fuel-odo','drv-fuel-station'].forEach(function(id) {
+    var el = document.getElementById(id); if(el) el.value = '';
+  });
+  var eff = document.getElementById('drv-fuel-eff-display');
+  if(eff) eff.style.display = 'none';
+  var last = document.getElementById('drv-fuel-last-eff');
+  if(last) last.style.display = 'none';
+}
+
+function hideDrvFuelScreen() {
+  document.getElementById('drv-fuel-screen').style.display = 'none';
+  document.getElementById('drv-s1').style.display = 'block';
+}
+
+async function drvFuelVehicleChanged() {
+  var vSel = document.getElementById('drv-fuel-vehicle');
+  var opt  = vSel && vSel.selectedOptions[0];
+  if(!opt || !opt.value) return;
+  var plate = opt.dataset.plate;
+  var lastKm = opt.dataset.lastKm;
+  var odoEl = document.getElementById('drv-fuel-odo');
+  if(odoEl && lastKm) odoEl.value = lastKm;
+  var lastEl = document.getElementById('drv-fuel-last-eff');
+  if(!lastEl) return;
+  if(_vehicleFuelHistory[plate]) {
+    lastEl.innerHTML = '\u{1F4CA} Last efficiency: <strong>' + _vehicleFuelHistory[plate] + ' km/L</strong>';
+    lastEl.style.display = 'block'; return;
+  }
+  try {
+    var fb = window._fb;
+    var fuelObj = await fb.ref('hmart/fuel').limitToLast(60).once('value').then(function(s){return s.val()||{};});
+    var fuels = fb.objToArr(fuelObj).filter(function(f){
+      return (f.plate||f.vehicle) === (plate||opt.dataset.vehicle) && parseFloat(f.odometer) > 0;
+    }).sort(function(a,b){ return (a.date||'') > (b.date||'') ? 1 : -1; });
+    if(fuels.length >= 2) {
+      var last2 = fuels.slice(-2);
+      var km1 = parseFloat(last2[0].odometer)||0;
+      var km2 = parseFloat(last2[1].odometer)||0;
+      var l2  = parseFloat(last2[1].liters)||0;
+      if(km2 > km1 && l2 > 0) {
+        var eff2 = Math.round((km2-km1)/l2*10)/10;
+        _vehicleFuelHistory[plate] = eff2;
+        lastEl.innerHTML = '\u{1F4CA} Last fill: <strong>' + eff2 + ' km/L</strong> (' + last2[1].date + ')';
+        lastEl.style.display = 'block';
+      } else { lastEl.style.display = 'none'; }
+    } else { lastEl.style.display = 'none'; }
+  } catch(e) { lastEl.style.display = 'none'; }
+}
+
+function calcFuelEff() {
   var liters = parseFloat((document.getElementById('drv-fuel-liters')||{}).value) || 0;
   var amount = parseFloat((document.getElementById('drv-fuel-amount')||{}).value) || 0;
-  var el = document.getElementById('drv-fuel-efficiency');
-  if(!el) return;
+  var odo    = parseFloat((document.getElementById('drv-fuel-odo')||{}).value)    || 0;
+  var effEl  = document.getElementById('drv-fuel-eff-display');
+  var plEl   = document.getElementById('drv-fuel-perliter');
+  var kmEl   = document.getElementById('drv-fuel-kmpl');
+  if(!effEl) return;
   if(liters > 0 && amount > 0) {
-    var perLiter = Math.round(amount / liters);
-    el.textContent = '⛽ P' + perLiter + ' per liter';
-    el.style.display = 'block';
-  } else { el.style.display = 'none'; }
+    effEl.style.display = 'block';
+    if(plEl) plEl.textContent = 'P' + Math.round(amount/liters);
+    var vSel = document.getElementById('drv-fuel-vehicle');
+    var opt  = vSel && vSel.selectedOptions[0];
+    var lastKm = opt ? parseFloat(opt.dataset.lastKm)||0 : 0;
+    if(odo > lastKm && lastKm > 0) {
+      if(kmEl) kmEl.textContent = Math.round((odo-lastKm)/liters*10)/10 + ' km/L';
+    } else {
+      if(kmEl) kmEl.textContent = 'Need odometer';
+    }
+  } else { effEl.style.display = 'none'; }
 }
 
 async function drvSubmitFuel() {
-  var liters  = (document.getElementById('drv-fuel-liters')||{}).value || '';
-  var amount  = (document.getElementById('drv-fuel-amount')||{}).value || '';
-  var odo     = (document.getElementById('drv-fuel-odo')||{}).value    || '';
+  var driver  = (document.getElementById('drv-fuel-driver') ||{}).value || '';
+  var vSel    = document.getElementById('drv-fuel-vehicle');
+  var vOpt    = vSel && vSel.selectedOptions[0];
+  var vehicle = vOpt ? (vOpt.dataset.vehicle||'') : '';
+  var plate   = vOpt ? (vOpt.dataset.plate||'')   : '';
+  var liters  = (document.getElementById('drv-fuel-liters') ||{}).value || '';
+  var amount  = (document.getElementById('drv-fuel-amount') ||{}).value || '';
+  var odo     = (document.getElementById('drv-fuel-odo')    ||{}).value || '';
   var station = (document.getElementById('drv-fuel-station')||{}).value || '';
-
-  if(!liters.trim() || !amount.trim()) {
-    toast('drv-toast', 'Enter liters and amount', false); return;
-  }
-
-  var vehicle = '', plate = '';
-  if(_lastRunVehicle) { vehicle = _lastRunVehicle.vehicle||''; plate = _lastRunVehicle.plate||''; }
-
-  var btn = document.querySelector('#drv-fuel-section button');
+  if(!driver)           { toast('drv-toast', 'Select driver',           false); return; }
+  if(!vehicle)          { toast('drv-toast', 'Select vehicle',          false); return; }
+  if(!liters || !amount){ toast('drv-toast', 'Enter liters and amount', false); return; }
+  var btn = document.querySelector('#drv-fuel-screen button:last-child');
   if(btn) { btn.textContent = 'Saving...'; btn.disabled = true; }
-
   var r = await apiPost('addFuelLog', {
-    driver: curDriver, vehicle: vehicle, plate: plate,
+    driver: driver, vehicle: vehicle, plate: plate,
     liters: parseFloat(liters), amount: parseFloat(amount),
     odometer: odo ? parseFloat(odo) : '', station: station
   });
-
-  if(btn) { btn.textContent = '⛽ Save Fuel Log'; btn.disabled = false; }
+  if(btn) { btn.textContent = '\u26FD Save Fuel Log'; btn.disabled = false; }
   if(r && r.success) {
     playSound('success');
-    toast('drv-toast', '⛽ Fuel logged!', true);
-    document.getElementById('drv-fuel-section').style.display = 'none';
-    ['drv-fuel-liters','drv-fuel-amount','drv-fuel-odo','drv-fuel-station'].forEach(function(id) {
-      var el = document.getElementById(id); if(el) el.value = '';
-    });
+    toast('drv-toast', '\u26FD Fuel logged!', true);
+    if(vOpt && odo) vOpt.dataset.lastKm = odo;
+    if(plate) delete _vehicleFuelHistory[plate];
+    setTimeout(hideDrvFuelScreen, 1200);
   } else { toast('drv-toast', 'Error saving fuel', false); }
 }
+
 
 // ---- LIVE STATUS ----
 function switchTab(t) {
