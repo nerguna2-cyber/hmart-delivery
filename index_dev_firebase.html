@@ -923,6 +923,35 @@ function showNetworkStatus(msg, color) {
                 <textarea id="drv-remarks" placeholder="Any issues..."></textarea>
               </div>
               <button class="btn-arrive" onclick="drvArrive()">Complete Run</button>
+
+              <!-- Fuel log - shown after arrival -->
+              <div id="drv-fuel-section" style="display:none;margin-top:20px;background:#EFF6FF;border-radius:12px;padding:16px;border:1px solid #BFDBFE">
+                <div style="font-size:14px;font-weight:700;color:#1F4E79;margin-bottom:4px">⛽ Did you refuel today?</div>
+                <div style="font-size:12px;color:#64748B;margin-bottom:12px">Record it here while you remember</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+                  <div>
+                    <label style="font-size:12px;color:#64748B;display:block;margin-bottom:4px">Liters</label>
+                    <input type="number" id="drv-fuel-liters" placeholder="e.g. 20" inputmode="decimal" step="0.1" style="width:100%;padding:10px;border:1px solid #BFDBFE;border-radius:8px;font-size:14px">
+                  </div>
+                  <div>
+                    <label style="font-size:12px;color:#64748B;display:block;margin-bottom:4px">Amount (P)</label>
+                    <input type="number" id="drv-fuel-amount" placeholder="e.g. 1500" inputmode="numeric" style="width:100%;padding:10px;border:1px solid #BFDBFE;border-radius:8px;font-size:14px" oninput="calcDrvFuelEfficiency()">
+                  </div>
+                  <div>
+                    <label style="font-size:12px;color:#64748B;display:block;margin-bottom:4px">Odometer (km)</label>
+                    <input type="number" id="drv-fuel-odo" placeholder="e.g. 91390" inputmode="numeric" style="width:100%;padding:10px;border:1px solid #BFDBFE;border-radius:8px;font-size:14px">
+                  </div>
+                  <div>
+                    <label style="font-size:12px;color:#64748B;display:block;margin-bottom:4px">Station</label>
+                    <input type="text" id="drv-fuel-station" placeholder="e.g. Shell" style="width:100%;padding:10px;border:1px solid #BFDBFE;border-radius:8px;font-size:14px">
+                  </div>
+                </div>
+                <div id="drv-fuel-efficiency" style="font-size:12px;color:#7C3AED;font-weight:600;margin-bottom:10px;display:none"></div>
+                <div style="display:grid;grid-template-columns:1fr auto;gap:8px">
+                  <button onclick="drvSubmitFuel()" style="padding:12px;background:#1F4E79;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">⛽ Save Fuel Log</button>
+                  <button onclick="document.getElementById('drv-fuel-section').style.display='none'" style="padding:12px;background:#F1F5F9;color:#64748B;border:none;border-radius:8px;font-size:13px;cursor:pointer">Skip</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1399,18 +1428,18 @@ function showNetworkStatus(msg, color) {
             <div style="font-size:12px;color:#64748B">Admin view only</div>
           </div>
           <div style="display:flex;gap:8px;align-items:center">
-            <select id="perf-range" onchange="loadPerformance()" style="padding:6px 10px;border:1px solid #D1D5DB;border-radius:6px;font-size:12px">
+            <select id="ap-range" onchange="loadAdminPerformance()" style="padding:6px 10px;border:1px solid #D1D5DB;border-radius:6px;font-size:12px">
               <option value="today">Today</option>
               <option value="week">This Week</option>
               <option value="month">This Month</option>
             </select>
-            <button class="btn-sm-off" onclick="loadPerformance()">Refresh</button>
+            <button class="btn-sm-off" onclick="loadAdminPerformance()">Refresh</button>
           </div>
         </div>
-        <div id="perf-summary" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px"></div>
-        <div id="perf-flags" style="margin-bottom:16px"></div>
-        <div id="perf-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
-          <div class="empty">Open Performance tab to load data</div>
+        <div id="ap-summary" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px"></div>
+        <div id="ap-flags" style="margin-bottom:16px"></div>
+        <div id="ap-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
+          <div class="empty">Loading...</div>
         </div>
       </div>
 
@@ -2380,7 +2409,11 @@ function showPreDep(orders) {
   }).join('');
 }
 
+var _curRunDepKm = null; // stores current run's departure KM for validation
+
 function showActiveRun(run, orders) {
+  _curRunDepKm = parseFloat(run.depKm) || null;
+  _lastRunVehicle = { vehicle: run.vehicle||'', plate: run.plate||'' }; // save for fuel logging
   document.getElementById('drv-predep').style.display = 'none';
   document.getElementById('drv-active').style.display = 'block';
   document.getElementById('drv-run-info').innerHTML = 'Departed <strong>' + fmtTime(run.depTime) + '</strong> | ' + run.vehicle + ' | KM: <strong>' + run.depKm + '</strong>';
@@ -2534,47 +2567,107 @@ async function drvDepart() {
 }
 
 async function drvArrive() {
-  var arrKm   = document.getElementById('drv-arrkm').value;
-  var remarks = document.getElementById('drv-remarks').value;
-  if(!arrKm) { toast('drv-toast', 'Please enter arrival KM', false); playSound('error'); return; }
+  var arrKmEl  = document.getElementById('drv-arrkm');
+  var arrKmStr = arrKmEl ? arrKmEl.value.trim() : '';
+  var remarks  = (document.getElementById('drv-remarks') || {}).value || '';
 
-  // Get current run's dep KM to validate
-  var activeRun = (drvRuns || []).find(function(r) {
-    return r.driver === curDriver && r.status === 'IN PROGRESS';
-  });
-  if(activeRun && activeRun.depKm) {
-    var dep = parseFloat(activeRun.depKm);
-    var arr = parseFloat(arrKm);
+  if(!arrKmStr) {
+    playSound('error');
+    toast('drv-toast', 'Please enter arrival KM', false);
+    if(arrKmEl) arrKmEl.focus();
+    return;
+  }
+
+  var arr = parseFloat(arrKmStr);
+  var dep = _curRunDepKm;
+
+  if(dep !== null && !isNaN(dep) && dep > 0) {
     if(arr < dep) {
       playSound('error');
-      toast('drv-toast', '⚠ Arrival KM (' + arr + ') is less than Departure KM (' + dep + ')! Please check.', false);
-      // Highlight the field red
-      var el = document.getElementById('drv-arrkm');
-      if(el) { el.style.border = '2px solid #DC2626'; el.style.background = '#FEF2F2'; }
+      if(arrKmEl) { arrKmEl.style.border = '2px solid #DC2626'; arrKmEl.style.background = '#FEF2F2'; }
+      toast('drv-toast', '⚠ Arrival ' + arr + ' km < Departure ' + dep + ' km! Check again.', false);
       return;
     }
     if(arr === dep) {
-      if(!confirm('Arrival KM is the same as Departure KM (' + dep + ').\nDistance will be 0 km. Continue?')) return;
+      if(!confirm('Arrival KM = Departure KM (' + dep + ')\nDistance will be 0 km. Continue?')) return;
     }
-    // Reset field style if OK
-    var el2 = document.getElementById('drv-arrkm');
-    if(el2) { el2.style.border = ''; el2.style.background = ''; }
+    if(arrKmEl) { arrKmEl.style.border = ''; arrKmEl.style.background = ''; }
   }
 
   var btn = document.querySelector('#drv-arrival .btn-arrive');
-  btn.textContent = 'Saving...'; btn.disabled = true;
+  if(btn) { btn.textContent = 'Saving...'; btn.disabled = true; }
   try {
-    var r = await apiPost('submitArrival', { driver: curDriver, arrKm: parseFloat(arrKm), remarks: remarks });
-    btn.textContent = 'Complete Run'; btn.disabled = false;
+    var r = await apiPost('submitArrival', { driver: curDriver, arrKm: arr, remarks: remarks });
+    if(btn) { btn.textContent = 'Complete Run'; btn.disabled = false; }
     if(r && r.success) {
-      playSound('success');
+      _curRunDepKm = null;
+      playSound('complete');
       toast('drv-toast', 'Run completed! +' + r.distance + ' km', true);
+      // Show fuel entry section
+      var fuelSection = document.getElementById('drv-fuel-section');
+      if(fuelSection) {
+        // Pre-fill odometer with arrival KM
+        var odoEl = document.getElementById('drv-fuel-odo');
+        if(odoEl) odoEl.value = arr;
+        fuelSection.style.display = 'block';
+      }
       setTimeout(drvLoadData, 1500);
     } else {
       playSound('error');
       toast('drv-toast', (r && r.message) || 'Error', false);
     }
-  } catch(e) { btn.textContent = 'Complete Run'; btn.disabled = false; toast('drv-toast', 'Error: ' + e.message, false); }
+  } catch(e) {
+    if(btn) { btn.textContent = 'Complete Run'; btn.disabled = false; }
+    toast('drv-toast', 'Error: ' + e.message, false);
+  }
+}
+
+// ---- DRIVER FUEL ENTRY ----
+var _lastRunVehicle = null; // stores last run vehicle for fuel logging
+
+function calcDrvFuelEfficiency() {
+  var liters = parseFloat((document.getElementById('drv-fuel-liters')||{}).value) || 0;
+  var amount = parseFloat((document.getElementById('drv-fuel-amount')||{}).value) || 0;
+  var el = document.getElementById('drv-fuel-efficiency');
+  if(!el) return;
+  if(liters > 0 && amount > 0) {
+    var perLiter = Math.round(amount / liters);
+    el.textContent = '⛽ P' + perLiter + ' per liter';
+    el.style.display = 'block';
+  } else { el.style.display = 'none'; }
+}
+
+async function drvSubmitFuel() {
+  var liters  = (document.getElementById('drv-fuel-liters')||{}).value || '';
+  var amount  = (document.getElementById('drv-fuel-amount')||{}).value || '';
+  var odo     = (document.getElementById('drv-fuel-odo')||{}).value    || '';
+  var station = (document.getElementById('drv-fuel-station')||{}).value || '';
+
+  if(!liters.trim() || !amount.trim()) {
+    toast('drv-toast', 'Enter liters and amount', false); return;
+  }
+
+  var vehicle = '', plate = '';
+  if(_lastRunVehicle) { vehicle = _lastRunVehicle.vehicle||''; plate = _lastRunVehicle.plate||''; }
+
+  var btn = document.querySelector('#drv-fuel-section button');
+  if(btn) { btn.textContent = 'Saving...'; btn.disabled = true; }
+
+  var r = await apiPost('addFuelLog', {
+    driver: curDriver, vehicle: vehicle, plate: plate,
+    liters: parseFloat(liters), amount: parseFloat(amount),
+    odometer: odo ? parseFloat(odo) : '', station: station
+  });
+
+  if(btn) { btn.textContent = '⛽ Save Fuel Log'; btn.disabled = false; }
+  if(r && r.success) {
+    playSound('success');
+    toast('drv-toast', '⛽ Fuel logged!', true);
+    document.getElementById('drv-fuel-section').style.display = 'none';
+    ['drv-fuel-liters','drv-fuel-amount','drv-fuel-odo','drv-fuel-station'].forEach(function(id) {
+      var el = document.getElementById(id); if(el) el.value = '';
+    });
+  } else { toast('drv-toast', 'Error saving fuel', false); }
 }
 
 // ---- LIVE STATUS ----
@@ -3252,7 +3345,137 @@ function switchAdmin(t) {
     if(ds&&!ds.value) ds.value=today;
     if(de&&!de.value) de.value=today;
   }
-  if(t==='performance') loadPerformance();
+  if(t==='performance') loadAdminPerformance();
+}
+
+async function loadAdminPerformance() {
+  var grid    = document.getElementById('ap-grid');
+  var summary = document.getElementById('ap-summary');
+  var flags   = document.getElementById('ap-flags');
+  var range   = (document.getElementById('ap-range') || {}).value || 'today';
+  if(grid) grid.innerHTML = '<div class="empty" style="padding:32px"><div style="font-size:28px;animation:spin 1s linear infinite;display:inline-block">⟳</div><div style="margin-top:8px;font-size:13px;color:#64748B">Loading...</div></div>';
+
+  // Reuse loadPerformance logic but target ap- elements
+  var fb = window._fb;
+  var today = fb.todayStr();
+  var startDate = today, endDate = today;
+  if(range === 'week') {
+    var d = new Date(); var day = d.getDay();
+    var mon = new Date(d); mon.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+    startDate = mon.toLocaleDateString('en-CA');
+  } else if(range === 'month') {
+    startDate = today.slice(0,7) + '-01';
+  }
+
+  try {
+    var ordObj = await fb.ref('hmart/orders').once('value').then(function(s){return s.val()||{};});
+    var runObj = await fb.ref('hmart/runs').once('value').then(function(s){return s.val()||{};});
+    var archObj = await fb.ref('hmart/archive').once('value').then(function(s){return s.val()||{};});
+    var fuelObj = await fb.ref('hmart/fuel').once('value').then(function(s){return s.val()||{};});
+
+    var allOrders2 = fb.objToArr(ordObj).filter(function(o){ return o.date >= startDate && o.date <= endDate; });
+    var allRuns2   = fb.objToArr(runObj).filter(function(r){ return r.date >= startDate && r.date <= endDate; });
+    var allFuels   = fb.objToArr(fuelObj).filter(function(f){ return f.date >= startDate && f.date <= endDate; });
+
+    Object.keys(archObj).forEach(function(archDate) {
+      if(archDate < startDate || archDate > endDate) return;
+      var arch = archObj[archDate];
+      if(arch.orders) fb.objToArr(arch.orders).forEach(function(o){ allOrders2.push(o); });
+      if(arch.runs)   fb.objToArr(arch.runs).forEach(function(r){ allRuns2.push(r); });
+      if(arch.fuel)   fb.objToArr(arch.fuel).forEach(function(f){ allFuels.push(f); });
+    });
+
+    var compOrders = allOrders2.filter(function(o){ return o.status === 'COMPLETED'; });
+    var compRuns   = allRuns2.filter(function(r){ return r.status === 'COMPLETED'; });
+
+    // Per-driver stats
+    var driverStats = {};
+    DRIVERS.forEach(function(d) {
+      driverStats[d] = { runs:0, km:0, orders:0, cancelCount:0, flagged:0, deliveryTimes:[], totalBill:0, fuelL:0 };
+    });
+
+    allRuns2.forEach(function(r) {
+      if(!driverStats[r.driver]) return;
+      driverStats[r.driver].runs++;
+      driverStats[r.driver].km += parseFloat(r.distKm)||0;
+    });
+
+    allOrders2.forEach(function(o) {
+      if(!o.driver || !driverStats[o.driver]) return;
+      if(o.status === 'COMPLETED') {
+        driverStats[o.driver].orders++;
+        driverStats[o.driver].totalBill += parseFloat(o.billAmount)||0;
+        if(o.startTime && o.completeTime) {
+          var sm = parseInt(o.startTime.split(':')[0])*60 + parseInt(o.startTime.split(':')[1]);
+          var cm = parseInt(o.completeTime.split(':')[0])*60 + parseInt(o.completeTime.split(':')[1]);
+          var dur = cm - sm;
+          if(dur > 0 && dur < 240) driverStats[o.driver].deliveryTimes.push(dur);
+        }
+      }
+      if(o.cancelCount) driverStats[o.driver].cancelCount += parseInt(o.cancelCount)||0;
+      if(o.flagged) driverStats[o.driver].flagged++;
+    });
+
+    allFuels.forEach(function(f) {
+      if(f.driver && driverStats[f.driver]) driverStats[f.driver].fuelL += parseFloat(f.liters)||0;
+    });
+
+    // Summary
+    var totalKm2   = compRuns.reduce(function(s,r){ return s+(parseFloat(r.distKm)||0); }, 0);
+    var totalBill2 = compOrders.reduce(function(s,o){ return s+(parseFloat(o.billAmount)||0); }, 0);
+    var totalCancel2 = allOrders2.reduce(function(s,o){ return s+(parseInt(o.cancelCount)||0); }, 0);
+    var totalFuelL2 = allFuels.reduce(function(s,f){ return s+(parseFloat(f.liters)||0); }, 0);
+    var avgTimes2 = [];
+    Object.values(driverStats).forEach(function(ds){ avgTimes2 = avgTimes2.concat(ds.deliveryTimes); });
+    var avgDel2 = avgTimes2.length ? Math.round(avgTimes2.reduce(function(a,b){return a+b;},0)/avgTimes2.length) : 0;
+
+    if(summary) summary.innerHTML =
+      '<div class="stat"><div class="stat-num">' + compOrders.length + '</div><div class="stat-lbl">Orders Done</div></div>' +
+      '<div class="stat"><div class="stat-num">' + Math.round(totalKm2) + ' km</div><div class="stat-lbl">Distance</div></div>' +
+      '<div class="stat"><div class="stat-num">' + (avgDel2 || '-') + (avgDel2 ? ' min' : '') + '</div><div class="stat-lbl">Avg Delivery</div></div>' +
+      '<div class="stat"><div class="stat-num" style="color:' + (totalCancel2>0?'#DC2626':'#059669') + '">' + totalCancel2 + '</div><div class="stat-lbl">Cancels</div></div>';
+
+    var flaggedOrders2 = allOrders2.filter(function(o){ return o.flagged; });
+    if(flags) {
+      flags.innerHTML = flaggedOrders2.length ?
+        '<div style="background:#FEE2E2;border:1px solid #FCA5A5;border-radius:8px;padding:12px;margin-bottom:8px">' +
+          '<div style="font-size:12px;font-weight:700;color:#DC2626;margin-bottom:6px">⚠ Flagged Orders (' + flaggedOrders2.length + ')</div>' +
+          flaggedOrders2.map(function(o){ return '<div style="font-size:12px;color:#991B1B;padding:3px 0">' + o.businessName + ' — ' + (o.driver||'?') + ' — ' + o.flagReason + '</div>'; }).join('') +
+        '</div>' : '';
+    }
+
+    if(grid) {
+      grid.innerHTML = DRIVERS.map(function(d) {
+        var ds = driverStats[d];
+        var avg = ds.deliveryTimes.length ? Math.round(ds.deliveryTimes.reduce(function(a,b){return a+b;},0)/ds.deliveryTimes.length) : null;
+        var sc = getDriverSched(d);
+        var isDayOff = sc && sc.dayOff;
+        var score = (ds.flagged > 0 || ds.cancelCount >= 3) ? (ds.flagged >= 2 || ds.cancelCount >= 5 ? 'bad' : 'warn') : 'good';
+        var scoreColor = score==='good'?'#059669':score==='warn'?'#F59E0B':'#DC2626';
+        var scoreBg    = score==='good'?'#F0FDF4':score==='warn'?'#FFFBEB':'#FEF2F2';
+        var kmPerL = (ds.km > 0 && ds.fuelL > 0) ? (Math.round(ds.km/ds.fuelL*10)/10) + ' km/L' : '-';
+
+        return '<div style="background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:16px;' + (isDayOff?'opacity:0.5;':'') + '">' +
+          '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">' +
+            '<div style="width:42px;height:42px;border-radius:50%;background:' + scoreColor + ';display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#fff;flex-shrink:0">' + d.charAt(0) + '</div>' +
+            '<div><div style="font-size:15px;font-weight:700">' + d + '</div><div style="font-size:11px;color:#64748B">' + (isDayOff?'🏖 Day Off':range==='today'?'Today':range==='week'?'This Week':'This Month') + '</div></div>' +
+            '<div style="margin-left:auto;background:' + scoreBg + ';color:' + scoreColor + ';font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px">' + (score==='good'?'✓ Good':score==='warn'?'⚠ Watch':'🔴 Issue') + '</div>' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+            _perfStat('Runs', ds.runs, '#1F4E79') +
+            _perfStat('Distance', Math.round(ds.km*10)/10 + ' km', '#1F4E79') +
+            _perfStat('Orders Done', ds.orders, '#059669') +
+            _perfStat('Avg Delivery', avg ? avg + ' min' : '-', '#374151') +
+            _perfStat('Cancels', ds.cancelCount, ds.cancelCount > 0 ? '#DC2626' : '#059669') +
+            _perfStat('Fuel Efficiency', kmPerL, '#7C3AED') +
+          '</div>' +
+          (ds.flagged > 0 ? '<div style="background:#FEE2E2;border-radius:6px;padding:6px 8px;font-size:11px;color:#DC2626;font-weight:600;margin-top:10px">⚠ ' + ds.flagged + ' flagged order(s)</div>' : '') +
+        '</div>';
+      }).join('');
+    }
+  } catch(e) {
+    if(grid) grid.innerHTML = '<div class="empty">Error: ' + e.message + '</div>';
+  }
 }
 
 async function loadAdminData() {
