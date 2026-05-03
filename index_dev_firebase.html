@@ -145,6 +145,10 @@ html{width:100%;overflow-x:hidden}
 .check-opt.ok{background:#D1FAE5;border-color:#059669;color:#065F46;font-weight:600}
 .check-opt.ng{background:#FEE2E2;border-color:#DC2626;color:#991B1B;font-weight:600}
 .fuel-row{background:#fff;border-radius:7px;border:1px solid #E2E8F0;padding:10px 12px;margin-bottom:7px;font-size:13px}
+.veh-tab{padding:9px 16px;font-size:13px;font-weight:500;border:none;background:none;color:#64748B;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px}
+.active-vt{color:#1F4E79;border-bottom-color:#1F4E79;font-weight:700}
+.mnt-card{background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:14px;margin-bottom:10px}
+.mnt-type-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700}
 
 /* ADMIN */
 .admin-wrap{max-width:600px;margin:0 auto;padding-bottom:60px}
@@ -1461,16 +1465,113 @@ function showNetworkStatus(msg, color) {
         </div>
       </div>
       <div id="admin-vehicles" class="admin-screen">
-        <div class="admin-card">
-          <div class="admin-title">Vehicle List</div>
-          <div id="admin-vehicle-list"></div>
-          <div style="margin-top:12px;background:#F8FAFC;border-radius:8px;padding:12px">
-            <div style="font-size:12px;font-weight:600;color:#64748B;margin-bottom:8px">Add New Vehicle</div>
-            <input type="text" id="new-veh-name" class="admin-input" placeholder="Vehicle name (e.g. LITE ACE)">
-            <input type="text" id="new-veh-plate" class="admin-input" placeholder="Plate (e.g. ABC 123)">
-            <button class="btn-admin-save" onclick="addVehicle()">+ Add Vehicle</button>
+
+        <!-- Vehicle selector -->
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+          <select id="av-selector" onchange="loadVehicleProfile()" style="flex:1;padding:9px 12px;border:1px solid #D1D5DB;border-radius:8px;font-size:14px;font-weight:600">
+            <option value="">-- Select Vehicle --</option>
+          </select>
+          <button onclick="showAddVehicleForm()" class="btn-blue-off">+ Add</button>
+          <button onclick="loadVehicleProfile()" class="btn-sm-off">Refresh</button>
+        </div>
+
+        <!-- Add vehicle form (hidden) -->
+        <div id="av-add-form" style="display:none;background:#F8FAFC;border-radius:10px;padding:14px;margin-bottom:16px;border:1px solid #E2E8F0">
+          <div style="font-size:13px;font-weight:700;color:#1F4E79;margin-bottom:10px">Add New Vehicle</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+            <input type="text" id="new-veh-name" class="admin-input" placeholder="Name (e.g. LITE ACE)" style="margin:0">
+            <input type="text" id="new-veh-plate" class="admin-input" placeholder="Plate (e.g. ABC 123)" style="margin:0">
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-admin-save" style="flex:1;margin:0" onclick="addVehicle()">+ Add Vehicle</button>
+            <button onclick="document.getElementById('av-add-form').style.display='none'" style="padding:8px 14px;background:#F1F5F9;border:none;border-radius:7px;cursor:pointer;font-size:13px">Cancel</button>
           </div>
         </div>
+
+        <!-- Vehicle profile (shown when vehicle selected) -->
+        <div id="av-profile" style="display:none">
+
+          <!-- KPI cards -->
+          <div id="av-kpi" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px"></div>
+
+          <!-- Alerts -->
+          <div id="av-alerts" style="margin-bottom:16px"></div>
+
+          <!-- Tabs: Maintenance / Fuel / Overview -->
+          <div style="display:flex;gap:0;border-bottom:2px solid #E2E8F0;margin-bottom:16px">
+            <button onclick="switchVehTab('maintenance')" id="vt-maintenance" class="veh-tab active-vt">🔧 Maintenance</button>
+            <button onclick="switchVehTab('fuel')"        id="vt-fuel"        class="veh-tab">⛽ Fuel History</button>
+            <button onclick="switchVehTab('overview')"    id="vt-overview"    class="veh-tab">📊 Overview</button>
+          </div>
+
+          <!-- MAINTENANCE TAB -->
+          <div id="avt-maintenance">
+            <!-- Add maintenance record -->
+            <div class="admin-card" style="margin-bottom:12px">
+              <div style="font-size:13px;font-weight:700;color:#1F4E79;margin-bottom:10px">+ Log Maintenance</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+                <div>
+                  <div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Type</div>
+                  <select id="av-mnt-type" style="width:100%;padding:9px;border:1px solid #D1D5DB;border-radius:7px;font-size:13px">
+                    <option>Oil Change</option>
+                    <option>Tire Replacement</option>
+                    <option>Brake Service</option>
+                    <option>Battery Replacement</option>
+                    <option>Transmission Service</option>
+                    <option>Air Filter</option>
+                    <option>Cooling System</option>
+                    <option>Suspension</option>
+                    <option>Electrical</option>
+                    <option>Body Repair</option>
+                    <option>General Inspection</option>
+                    <option>Other</option>
+                  </select>
+                </div>
+                <div>
+                  <div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Date</div>
+                  <input type="date" id="av-mnt-date" style="width:100%;padding:9px;border:1px solid #D1D5DB;border-radius:7px;font-size:13px">
+                </div>
+                <div>
+                  <div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Cost (P)</div>
+                  <input type="number" id="av-mnt-cost" placeholder="e.g. 2500" inputmode="numeric" style="width:100%;padding:9px;border:1px solid #D1D5DB;border-radius:7px;font-size:13px">
+                </div>
+                <div>
+                  <div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Odometer (km)</div>
+                  <input type="number" id="av-mnt-odo" placeholder="e.g. 91500" inputmode="numeric" style="width:100%;padding:9px;border:1px solid #D1D5DB;border-radius:7px;font-size:13px">
+                </div>
+                <div style="grid-column:1/-1">
+                  <div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Next service at (km, optional)</div>
+                  <input type="number" id="av-mnt-next" placeholder="e.g. 96500 (5000km later)" inputmode="numeric" style="width:100%;padding:9px;border:1px solid #D1D5DB;border-radius:7px;font-size:13px">
+                </div>
+                <div style="grid-column:1/-1">
+                  <div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Notes</div>
+                  <input type="text" id="av-mnt-notes" placeholder="e.g. Used Shell 10W-40, replaced all 4 tires..." style="width:100%;padding:9px;border:1px solid #D1D5DB;border-radius:7px;font-size:13px">
+                </div>
+              </div>
+              <button onclick="saveMaintenanceRecord()" style="width:100%;padding:11px;background:#1F4E79;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">Save Record</button>
+            </div>
+            <!-- History list -->
+            <div id="av-mnt-list"><div class="empty">No maintenance records yet</div></div>
+          </div>
+
+          <!-- FUEL TAB -->
+          <div id="avt-fuel" style="display:none">
+            <div id="av-fuel-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px"></div>
+            <div id="av-fuel-list"><div class="empty">Loading...</div></div>
+          </div>
+
+          <!-- OVERVIEW TAB -->
+          <div id="avt-overview" style="display:none">
+            <div id="av-overview-content"></div>
+          </div>
+
+        </div>
+
+        <!-- No vehicle selected state -->
+        <div id="av-empty" class="empty" style="padding:40px">
+          Select a vehicle above to view its profile
+        </div>
+
       </div>
       <div id="admin-report" class="admin-screen">
         <div class="admin-card">
@@ -2717,6 +2818,268 @@ async function drvArrive() {
   }
 }
 
+// ---- VEHICLE MANAGEMENT ----
+var _curVehicle = null;
+
+function showAddVehicleForm() {
+  var f = document.getElementById('av-add-form');
+  if(f) f.style.display = f.style.display === 'none' ? 'block' : 'none';
+}
+
+function switchVehTab(tab) {
+  ['maintenance','fuel','overview'].forEach(function(t) {
+    var el = document.getElementById('avt-' + t);
+    if(el) el.style.display = t === tab ? 'block' : 'none';
+    var btn = document.getElementById('vt-' + t);
+    if(btn) btn.classList.toggle('active-vt', t === tab);
+  });
+  if(tab === 'fuel'     && _curVehicle) loadVehicleFuelHistory(_curVehicle.plate||_curVehicle.vehicle);
+  if(tab === 'overview' && _curVehicle) loadVehicleOverview(_curVehicle);
+}
+
+async function populateVehicleSelector() {
+  var sel = document.getElementById('av-selector');
+  if(!sel) return;
+  var fb = window._fb;
+  var vehObj = await fb.ref('hmart/vehicles').once('value').then(function(s){ return s.val()||{}; });
+  adminVehicles = fb.objToArr(vehObj, 'vehicle');
+  sel.innerHTML = '<option value="">-- Select Vehicle --</option>' +
+    adminVehicles.map(function(v) {
+      return '<option value="' + (v.plate||v.vehicle) + '">' + v.vehicle + (v.plate ? ' (' + v.plate + ')' : '') + '</option>';
+    }).join('');
+}
+
+async function loadVehicleProfile() {
+  var sel = document.getElementById('av-selector');
+  if(!sel || !sel.value) {
+    var p = document.getElementById('av-profile'); if(p) p.style.display = 'none';
+    var e = document.getElementById('av-empty');   if(e) e.style.display = 'block';
+    return;
+  }
+  var p = document.getElementById('av-profile'); if(p) p.style.display = 'block';
+  var e = document.getElementById('av-empty');   if(e) e.style.display = 'none';
+  var plate = sel.value;
+  var veh = adminVehicles.find(function(v){ return (v.plate||v.vehicle) === plate; });
+  if(!veh) return;
+  _curVehicle = veh;
+
+  var odoEl  = document.getElementById('av-mnt-odo');
+  if(odoEl && veh.lastKm) odoEl.value = veh.lastKm;
+  var dateEl = document.getElementById('av-mnt-date');
+  if(dateEl && !dateEl.value) dateEl.value = window._fb.todayStr();
+
+  await Promise.all([loadVehicleKpi(veh), loadMaintenanceHistory(veh.plate||veh.vehicle)]);
+}
+
+function _vehStat(label, value, color) {
+  return '<div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:12px;text-align:center">' +
+    '<div style="font-size:17px;font-weight:700;color:' + color + '">' + value + '</div>' +
+    '<div style="font-size:10px;color:#94A3B8;margin-top:3px;text-transform:uppercase;letter-spacing:0.05em">' + label + '</div>' +
+  '</div>';
+}
+
+async function loadVehicleKpi(veh) {
+  var fb = window._fb;
+  var plate = veh.plate || veh.vehicle;
+  var pKey  = plate.replace(/\s/g,'_');
+
+  var fuelObj = await fb.ref('hmart/fuel').once('value').then(function(s){return s.val()||{};});
+  var fuels = fb.objToArr(fuelObj)
+    .filter(function(f){ return (f.plate||f.vehicle) === plate; })
+    .sort(function(a,b){ return (a.date||'') > (b.date||'') ? 1 : -1; });
+
+  var mntObj = await fb.ref('hmart/maintenance/' + pKey).once('value').then(function(s){return s.val()||{};});
+  var mnts = fb.objToArr(mntObj).sort(function(a,b){ return (a.date||'') > (b.date||'') ? 1 : -1; });
+
+  var totalFuelCost = fuels.reduce(function(s,f){return s+(parseFloat(f.amount)||0);},0);
+  var totalMntCost  = mnts.reduce(function(s,m){return s+(parseFloat(m.cost)||0);},0);
+  var lastKm = parseFloat(veh.lastKm)||0;
+
+  var kmplReadings = [];
+  for(var i = 1; i < fuels.length; i++) {
+    var km1=parseFloat(fuels[i-1].odometer)||0, km2=parseFloat(fuels[i].odometer)||0, l2=parseFloat(fuels[i].liters)||0;
+    if(km2>km1&&l2>0) kmplReadings.push((km2-km1)/l2);
+  }
+  var avgKmpl = kmplReadings.length ? kmplReadings.reduce(function(a,b){return a+b;},0)/kmplReadings.length : null;
+
+  var kpiEl = document.getElementById('av-kpi');
+  if(kpiEl) kpiEl.innerHTML =
+    _vehStat('Current KM', lastKm ? lastKm.toLocaleString()+' km' : '-', '#1F4E79') +
+    _vehStat('Avg km/L', avgKmpl ? Math.round(avgKmpl*10)/10+' km/L' : '-', '#7C3AED') +
+    _vehStat('Fuel Cost', totalFuelCost ? 'P'+Math.round(totalFuelCost).toLocaleString() : '-', '#F59E0B') +
+    _vehStat('Maint. Cost', totalMntCost ? 'P'+Math.round(totalMntCost).toLocaleString() : '-', '#DC2626');
+
+  // Alerts
+  var alerts = [];
+  var lastOil  = mnts.filter(function(m){return m.type==='Oil Change';}).slice(-1)[0];
+  var lastTire = mnts.filter(function(m){return m.type==='Tire Replacement';}).slice(-1)[0];
+  if(lastOil && lastOil.nextKm) {
+    var diff = lastKm - parseFloat(lastOil.nextKm);
+    if(diff >= 0)    alerts.push({l:'red',    m:'🔴 Oil Change OVERDUE by '+diff+' km'});
+    else if(diff>-500) alerts.push({l:'orange', m:'🟡 Oil Change due in '+(Math.abs(diff))+' km'});
+  } else if(!lastOil) {
+    alerts.push({l:'orange', m:'🟡 No oil change on record — add one when done'});
+  }
+  if(lastTire && lastTire.nextKm && lastKm >= parseFloat(lastTire.nextKm))
+    alerts.push({l:'red', m:'🔴 Tire Check OVERDUE — due at '+parseFloat(lastTire.nextKm).toLocaleString()+' km'});
+  if(fuels.filter(function(f){return f.flagged;}).length)
+    alerts.push({l:'red', m:'⚠ Flagged fuel entries — check Fuel History tab'});
+
+  var alertEl = document.getElementById('av-alerts');
+  if(alertEl) alertEl.innerHTML = alerts.length ? alerts.map(function(a){
+    var bg=a.l==='red'?'#FEF2F2':'#FEF3C7', bc=a.l==='red'?'#FCA5A5':'#FDE68A', cl=a.l==='red'?'#DC2626':'#92400E';
+    return '<div style="background:'+bg+';border:1px solid '+bc+';border-radius:8px;padding:10px 14px;margin-bottom:8px;font-size:13px;font-weight:600;color:'+cl+'">'+a.m+'</div>';
+  }).join('') : '<div style="background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;padding:10px 14px;font-size:13px;color:#166534;font-weight:600">✅ No alerts — vehicle looks good</div>';
+}
+
+async function saveMaintenanceRecord() {
+  if(!_curVehicle) return;
+  var type  = (document.getElementById('av-mnt-type') ||{}).value||'';
+  var date  = (document.getElementById('av-mnt-date') ||{}).value||'';
+  var cost  = (document.getElementById('av-mnt-cost') ||{}).value||'';
+  var odo   = (document.getElementById('av-mnt-odo')  ||{}).value||'';
+  var next  = (document.getElementById('av-mnt-next') ||{}).value||'';
+  var notes = (document.getElementById('av-mnt-notes')||{}).value||'';
+  if(!type||!date){toast('toast-admin','Select type and date',false);return;}
+
+  var fb   = window._fb;
+  var pKey = (_curVehicle.plate||_curVehicle.vehicle).replace(/\s/g,'_');
+  var record = {
+    type:type, date:date, cost:cost?parseFloat(cost):0,
+    odometer:odo?parseFloat(odo):'', nextKm:next?parseFloat(next):'',
+    notes:notes, vehicle:_curVehicle.vehicle, plate:_curVehicle.plate||''
+  };
+
+  var btn = document.querySelector('#avt-maintenance > .admin-card button:last-child');
+  if(btn){btn.textContent='Saving...';btn.disabled=true;}
+
+  await fb.ref('hmart/maintenance/'+pKey).push(record);
+  if(odo && parseFloat(odo) > (parseFloat(_curVehicle.lastKm)||0)) {
+    var vk = (_curVehicle.plate||'').replace(/\s/g,'_');
+    if(vk) await fb.ref('hmart/vehicles/'+vk).update({lastKm:parseFloat(odo)});
+    _curVehicle.lastKm = odo;
+  }
+
+  if(btn){btn.textContent='Save Record';btn.disabled=false;}
+  toast('toast-admin','✅ Maintenance record saved!',true);
+  playSound('success');
+  ['av-mnt-cost','av-mnt-next','av-mnt-notes'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
+  await loadMaintenanceHistory(_curVehicle.plate||_curVehicle.vehicle);
+  await loadVehicleKpi(_curVehicle);
+}
+
+async function loadMaintenanceHistory(plate) {
+  var listEl = document.getElementById('av-mnt-list');
+  if(!listEl) return;
+  listEl.innerHTML = '<div class="empty">Loading...</div>';
+  var fb   = window._fb;
+  var pKey = (plate||'').replace(/\s/g,'_');
+  var obj  = await fb.ref('hmart/maintenance/'+pKey).once('value').then(function(s){return s.val()||{};});
+  var recs = fb.objToArr(obj).sort(function(a,b){return (a.date||'') < (b.date||'') ? 1 : -1;});
+  if(!recs.length){listEl.innerHTML='<div class="empty">No maintenance records yet</div>';return;}
+  var tc={'Oil Change':'#FEF3C7|#92400E','Tire Replacement':'#EDE9FE|#5B21B6',
+    'Brake Service':'#FEE2E2|#DC2626','Battery Replacement':'#DBEAFE|#1E40AF',
+    'Body Repair':'#F3F4F6|#374151','General Inspection':'#D1FAE5|#065F46'};
+  listEl.innerHTML = recs.map(function(r) {
+    var c=(tc[r.type]||'#F1F5F9|#374151').split('|');
+    return '<div class="mnt-card">' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+        '<span class="mnt-type-badge" style="background:'+c[0]+';color:'+c[1]+'">'+r.type+'</span>' +
+        '<span style="font-size:12px;color:#64748B;margin-left:auto">'+r.date+'</span>' +
+      '</div>' +
+      '<div style="display:flex;gap:12px;font-size:12px;flex-wrap:wrap">' +
+        (r.cost?'<span style="font-weight:700;color:#DC2626">P'+parseFloat(r.cost).toLocaleString()+'</span>':'') +
+        (r.odometer?'<span style="color:#64748B">📍 '+parseFloat(r.odometer).toLocaleString()+' km</span>':'') +
+        (r.nextKm?'<span style="color:#7C3AED">Next: '+parseFloat(r.nextKm).toLocaleString()+' km</span>':'') +
+      '</div>' +
+      (r.notes?'<div style="font-size:12px;color:#374151;margin-top:5px;background:#F8FAFC;border-radius:5px;padding:5px 8px">'+r.notes+'</div>':'') +
+    '</div>';
+  }).join('');
+}
+
+async function loadVehicleFuelHistory(plate) {
+  var listEl=document.getElementById('av-fuel-list'), statEl=document.getElementById('av-fuel-stats');
+  if(!listEl) return;
+  listEl.innerHTML='<div class="empty">Loading...</div>';
+  var fb=window._fb;
+  var fuelObj=await fb.ref('hmart/fuel').once('value').then(function(s){return s.val()||{};});
+  var fuels=fb.objToArr(fuelObj).filter(function(f){return (f.plate||f.vehicle)===plate;})
+    .sort(function(a,b){return (a.date||'') < (b.date||'') ? 1 : -1;});
+  if(!fuels.length){listEl.innerHTML='<div class="empty">No fuel records yet</div>';return;}
+  var totalL=fuels.reduce(function(s,f){return s+(parseFloat(f.liters)||0);},0);
+  var totalCost=fuels.reduce(function(s,f){return s+(parseFloat(f.amount)||0);},0);
+  var flagged=fuels.filter(function(f){return f.flagged;}).length;
+  if(statEl) statEl.innerHTML=
+    _vehStat('Total Liters',Math.round(totalL*10)/10+' L','#1F4E79')+
+    _vehStat('Total Cost','P'+Math.round(totalCost).toLocaleString(),'#F59E0B')+
+    _vehStat('Flagged',flagged,flagged>0?'#DC2626':'#059669');
+  listEl.innerHTML=fuels.map(function(f){
+    var isFl=f.flagged;
+    var ffl=f.fraudFlags?(Array.isArray(f.fraudFlags)?f.fraudFlags:Object.values(f.fraudFlags)):[];
+    return '<div class="fuel-row" style="'+(isFl?'border-left:3px solid #DC2626;background:#FEF2F2':'')+'">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center">' +
+        '<div style="font-size:13px;font-weight:600">'+f.date+(f.station?' — '+f.station:'')+'</div>' +
+        (isFl?'<span style="background:#DC2626;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px">⚠ REVIEW</span>':'') +
+      '</div>' +
+      '<div style="display:flex;gap:10px;margin-top:4px;font-size:12px;flex-wrap:wrap">' +
+        '<span>⛽ <b>'+f.liters+' L</b></span><span>P<b>'+f.amount+'</b></span>' +
+        (f.pricePerLiter?'<span style="color:#64748B">P'+f.pricePerLiter+'/L</span>':'') +
+        (f.kmpl?'<span style="color:#7C3AED;font-weight:700">⚡ '+f.kmpl+' km/L</span>':'') +
+        (f.odometer?'<span style="color:#64748B">📍 '+f.odometer+' km</span>':'') +
+        (f.driver?'<span>👤 '+f.driver+'</span>':'') +
+      '</div>' +
+      (ffl.length?'<div style="margin-top:5px">'+ffl.map(function(fl){return '<div style="font-size:11px;color:#DC2626">⚠ '+fl+'</div>';}).join('')+'</div>':'') +
+    '</div>';
+  }).join('');
+}
+
+async function loadVehicleOverview(veh) {
+  var el=document.getElementById('av-overview-content');
+  if(!el) return;
+  var fb=window._fb;
+  var plate=veh.plate||veh.vehicle, pKey=plate.replace(/\s/g,'_');
+  var runObj=await fb.ref('hmart/runs').once('value').then(function(s){return s.val()||{};});
+  var runs=fb.objToArr(runObj).filter(function(r){return (r.plate||r.vehicle)===plate&&r.status==='COMPLETED';});
+  var totalKm=runs.reduce(function(s,r){return s+(parseFloat(r.distKm)||0);},0);
+  var mntObj=await fb.ref('hmart/maintenance/'+pKey).once('value').then(function(s){return s.val()||{};});
+  var mnts=fb.objToArr(mntObj);
+  var totalMntCost=mnts.reduce(function(s,m){return s+(parseFloat(m.cost)||0);},0);
+  el.innerHTML=
+    '<div class="admin-card" style="margin-bottom:12px">' +
+      '<div style="font-size:13px;font-weight:700;color:#1F4E79;margin-bottom:12px">📊 Vehicle Summary</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+        _vehStat('Total Runs',runs.length,'#1F4E79')+
+        _vehStat('Total Distance',Math.round(totalKm)+' km','#1F4E79')+
+        _vehStat('Maint. Records',mnts.length,'#F59E0B')+
+        _vehStat('Maint. Cost','P'+Math.round(totalMntCost).toLocaleString(),'#DC2626')+
+      '</div>' +
+    '</div>' +
+    '<div class="admin-card">' +
+      '<div style="font-size:13px;font-weight:700;color:#1F4E79;margin-bottom:10px">🔧 Recent Maintenance</div>' +
+      (mnts.length ? mnts.sort(function(a,b){return (a.date||'') < (b.date||'') ? 1 : -1;}).slice(0,5).map(function(m){
+        return '<div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px solid #F1F5F9;font-size:12px">' +
+          '<span style="color:#64748B;white-space:nowrap">'+m.date+'</span>' +
+          '<span style="font-weight:600;flex:1">'+m.type+'</span>' +
+          (m.cost?'<span style="color:#DC2626;font-weight:700">P'+parseFloat(m.cost).toLocaleString()+'</span>':'') +
+        '</div>';
+      }).join('') : '<div class="empty" style="font-size:12px">No records yet</div>') +
+    '</div>';
+}
+
+async function addVehicle() {
+  var name  = ((document.getElementById('new-veh-name') ||{}).value||'').trim();
+  var plate = ((document.getElementById('new-veh-plate')||{}).value||'').trim();
+  if(!name||!plate){toast('toast-admin','Enter vehicle name and plate',false);return;}
+  var r=await apiPost('addVehicleToSheet',{vehicle:name,plate:plate,status:'Active'});
+  if(r&&r.success){
+    toast('toast-admin','Vehicle added!',true);
+    document.getElementById('new-veh-name').value='';
+    document.getElementById('new-veh-plate').value='';
+    document.getElementById('av-add-form').style.display='none';
+    await populateVehicleSelector();
+  }
+}
+
 // ---- DRIVER FUEL SCREEN ----
 var _lastRunVehicle = null;
 var _vehicleFuelHistory = {};
@@ -3576,6 +3939,7 @@ function switchAdmin(t) {
     if(de&&!de.value) de.value=today;
   }
   if(t==='performance') loadAdminPerformance();
+  if(t==='vehicles') populateVehicleSelector();
 }
 
 async function loadAdminPerformance() {
