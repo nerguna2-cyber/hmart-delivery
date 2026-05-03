@@ -2208,6 +2208,8 @@ function buildOrderItemHTML(o, displayStatus) {
     '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
       payBadge(o.payment || 'Cash') +
       (!isCompleted ?
+        // Tappable payment badge
+        '<span onclick="qeCyclePayment(\'' + o.orderId + '\', event)" id="qe-pay-badge-' + o.orderId + '" title="Tap to change payment" style="cursor:pointer;user-select:none">' + payBadge(o.payment || 'Cash') + '</span>' +
         // Tappable amount
         '<span onclick="qeEditAmount(\'' + o.orderId + '\')" id="qe-amt-display-' + o.orderId + '" style="cursor:pointer;font-size:14px;font-weight:700;color:' + (hasAmount ? '#1F4E79' : '#94A3B8') + ';border-bottom:1px dashed #CBD5E1">' +
           (hasAmount ? 'P' + o.billAmount : '＋ Add amount') +
@@ -2218,6 +2220,8 @@ function buildOrderItemHTML(o, displayStatus) {
           '<button onclick="qeCancelAmount(\'' + o.orderId + '\')" style="padding:4px 8px;background:#F1F5F9;color:#374151;border:none;border-radius:5px;cursor:pointer;font-size:13px">✕</button>' +
         '</span>'
       :
+        // Completed: static display
+        '<span id="qe-pay-badge-' + o.orderId + '">' + payBadge(o.payment || 'Cash') + '</span>' +
         '<span style="font-size:14px;font-weight:700;color:#1F4E79">' + (hasAmount ? 'P' + o.billAmount : '-') + '</span>'
       ) +
       (o.change && o.payment === 'Cash' && hasAmount ? '<span style="font-size:12px;color:#059669;font-weight:600">Change: P' + o.change + '</span>' : '') +
