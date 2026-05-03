@@ -4861,107 +4861,98 @@ function setAmPm(fieldId, ampm) {
 }
 
 function getTimeFieldVal(fieldId) {
-  var hidEl = document.getElementById(fieldId);
-  return hidEl ? hidEl.value : '';
+  var el = document.getElementById(fieldId);
+  if(!el) return '';
+  var v = el.value.trim();
+  if(!v) return '';
+  // Already HH:MM format
+  if(/^\d{2}:\d{2}$/.test(v)) return v;
+  // Plain number → convert to HH:00
+  var h = parseInt(v);
+  if(isNaN(h) || h < 0 || h > 23) return '';
+  return String(h).padStart(2,'0') + ':00';
 }
 
 function autoFillSchedule(driver) {
-  var ciVal = getTimeFieldVal('sc-ci-' + driver);
-  if(!ciVal) return;
-  var h = parseInt(ciVal.split(':')[0]);
-
-  var breakH    = h + 4; if(breakH    >= 24) breakH    -= 24;
-  var clockoutH = h + 9; if(clockoutH >= 24) clockoutH -= 24;
-
-  // Set break hidden input + update widget display
-  var bsHid = document.getElementById('sc-bs-' + driver);
-  var coHid = document.getElementById('sc-co-' + driver);
-  if(bsHid && !bsHid.value) {
-    bsHid.value = String(breakH).padStart(2,'0') + ':00';
-    _updateTimeWidget('sc-bs-' + driver, breakH);
-  }
-  if(coHid && !coHid.value) {
-    coHid.value = String(clockoutH).padStart(2,'0') + ':00';
-    _updateTimeWidget('sc-co-' + driver, clockoutH);
-  }
-}
-
-function _updateTimeWidget(fieldId, h24) {
-  var hEl   = document.getElementById(fieldId + '-h');
-  var amBtn = document.getElementById(fieldId + '-am');
-  var pmBtn = document.getElementById(fieldId + '-pm');
-  if(!hEl) return;
-  var isPM = h24 >= 12;
-  var h12  = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
-  hEl.value = h12;
-  setAmPm(fieldId, isPM ? 'PM' : 'AM');
+  var ciEl = document.getElementById('sc-ci-' + driver);
+  var bsEl = document.getElementById('sc-bs-' + driver);
+  var coEl = document.getElementById('sc-co-' + driver);
+  if(!ciEl || !ciEl.value.trim()) return;
+  var h = parseInt(ciEl.value);
+  if(isNaN(h)) return;
+  var bh = (h + 4) % 24;
+  var ch = (h + 9) % 24;
+  if(bsEl && !bsEl.value.trim()) bsEl.value = bh;
+  if(coEl && !coEl.value.trim()) coEl.value = ch;
 }
 
 function buildAttDriverTable() {
   var el = document.getElementById('att-driver-table');
   if(!el) return;
-  el.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:600px">' +
+
+  var rows = DRIVERS.map(function(d, idx) {
+    var sc = getDriverSched(d);
+    var isDayOff = !!(sc.dayOff);
+    var nextId = DRIVERS[idx+1] ? 'sc-ci-' + DRIVERS[idx+1] : 'att-save-btn';
+
+    // Display stored HH:MM as just the hour number for input
+    function toHourNum(hhmm) {
+      if(!hhmm) return '';
+      return String(parseInt(hhmm.split(':')[0]));
+    }
+
+    var baseInput = 'width:52px;padding:7px 6px;border:1.5px solid #93C5FD;border-radius:7px;font-size:16px;font-weight:700;text-align:center;-moz-appearance:textfield;background:#fff';
+    var breakInput = 'width:52px;padding:7px 6px;border:1.5px solid #FDE68A;border-radius:7px;font-size:16px;font-weight:700;text-align:center;-moz-appearance:textfield;background:#FFFBEB';
+    var outInput   = 'width:52px;padding:7px 6px;border:1.5px solid #E2E8F0;border-radius:7px;font-size:16px;font-weight:700;text-align:center;-moz-appearance:textfield;background:#fff';
+    var dis = isDayOff ? 'disabled' : '';
+    var rowBg = isDayOff ? 'background:#FFF5F5;opacity:0.8' : '';
+
+    return '<tr style="' + rowBg + '">' +
+      '<td style="padding:8px 10px;border:1px solid #E2E8F0;font-weight:700;font-size:13px;white-space:nowrap">' + d + '</td>' +
+      '<td style="padding:6px 10px;border:1px solid #E2E8F0;text-align:center">' +
+        '<input type="number" id="sc-ci-' + d + '" value="' + toHourNum(sc.clockin) + '" min="0" max="23" placeholder="H" inputmode="numeric" ' + dis +
+          ' oninput="autoFillSchedule(\'' + d + '\')"' +
+          ' onkeydown="if(event.key===\'Enter\'||event.key===\'Tab\'){event.preventDefault();var nx=document.getElementById(\'' + nextId + '\');if(nx){nx.focus();nx.select();}}"' +
+          ' style="' + baseInput + (isDayOff?';opacity:0.4':'') + '">' +
+        '<span style="font-size:11px;color:#94A3B8;margin-left:2px">:00</span>' +
+      '</td>' +
+      '<td style="padding:6px 10px;border:1px solid #E2E8F0;background:#FFFBEB;text-align:center">' +
+        '<input type="number" id="sc-bs-' + d + '" value="' + toHourNum(sc.breakStart) + '" min="0" max="23" placeholder="H" inputmode="numeric" ' + dis +
+          ' style="' + breakInput + (isDayOff?';opacity:0.4':'') + '">' +
+        '<span style="font-size:11px;color:#94A3B8;margin-left:2px">:00</span>' +
+      '</td>' +
+      '<td style="padding:6px 10px;border:1px solid #E2E8F0;text-align:center">' +
+        '<input type="number" id="sc-co-' + d + '" value="' + toHourNum(sc.clockout) + '" min="0" max="23" placeholder="H" inputmode="numeric" ' + dis +
+          ' style="' + outInput + (isDayOff?';opacity:0.4':'') + '">' +
+        '<span style="font-size:11px;color:#94A3B8;margin-left:2px">:00</span>' +
+      '</td>' +
+      '<td style="padding:6px 10px;border:1px solid #E2E8F0;background:#FFF5F5;text-align:center">' +
+        '<input type="checkbox" id="sc-do-' + d + '" ' + (isDayOff?'checked':'') + ' onchange="toggleDayOff(\'' + d + '\')" style="width:18px;height:18px;cursor:pointer">' +
+      '</td>' +
+      '<td style="padding:6px 8px;border:1px solid #E2E8F0">' +
+        '<input type="text" id="sc-nt-' + d + '" value="' + (sc.notes||'') + '" placeholder="Notes..." style="width:100%;border:1px solid #E2E8F0;border-radius:5px;font-size:12px;padding:5px">' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+
+  el.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">' +
     '<thead><tr style="background:#F1F5F9">' +
-      '<th style="padding:6px 10px;text-align:left;border:1px solid #E2E8F0;font-weight:600;min-width:90px">Driver</th>' +
-      '<th style="padding:6px 10px;text-align:center;border:1px solid #E2E8F0;font-weight:600;min-width:110px">Clock In</th>' +
-      '<th style="padding:6px 10px;text-align:center;border:1px solid #E2E8F0;font-weight:600;background:#FEF3C7;min-width:110px">Break</th>' +
-      '<th style="padding:6px 10px;text-align:center;border:1px solid #E2E8F0;font-weight:600;min-width:110px">Clock Out</th>' +
-      '<th style="padding:6px 10px;text-align:center;border:1px solid #E2E8F0;font-weight:600;background:#FEE2E2;min-width:70px">Day Off</th>' +
-      '<th style="padding:6px 10px;text-align:left;border:1px solid #E2E8F0;font-weight:600;min-width:120px">Notes</th>' +
-    '</tr></thead><tbody>' +
-    DRIVERS.map(function(d, idx) {
-      var sc = getDriverSched(d);
-      var isDayOff = !!(sc.dayOff);
-      var nextDriver = DRIVERS[idx + 1];
-      var tabTarget = nextDriver ? 'sc-ci-h-' + nextDriver : 'att-save-btn';
+      '<th style="padding:8px 10px;text-align:left;border:1px solid #E2E8F0;font-weight:600">Driver</th>' +
+      '<th style="padding:8px 10px;text-align:center;border:1px solid #E2E8F0;font-weight:600;color:#1F4E79">Clock In</th>' +
+      '<th style="padding:8px 10px;text-align:center;border:1px solid #E2E8F0;font-weight:600;background:#FEF3C7;color:#92400E">Break</th>' +
+      '<th style="padding:8px 10px;text-align:center;border:1px solid #E2E8F0;font-weight:600">Clock Out</th>' +
+      '<th style="padding:8px 10px;text-align:center;border:1px solid #E2E8F0;font-weight:600;background:#FEE2E2;color:#DC2626">Day Off</th>' +
+      '<th style="padding:8px 10px;text-align:left;border:1px solid #E2E8F0;font-weight:600">Notes</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 
-      function timeWidget(fieldId, val, borderColor, disabled, tabNext) {
-        var h24 = 0, hStr = '', ampm = 'AM';
-        if(val) {
-          var p = val.split(':');
-          h24   = parseInt(p[0])||0;
-          var h12 = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
-          hStr  = String(h12);
-          ampm  = h24 >= 12 ? 'PM' : 'AM';
-        }
-        var dis = disabled ? 'disabled' : '';
-        var op  = disabled ? 'opacity:0.4;' : '';
-        var selStyle = 'background:#1F4E79;color:#fff;border:1px solid #1F4E79;border-radius:3px;padding:3px 6px;font-size:11px;font-weight:700;cursor:pointer';
-        var offStyle = 'background:#fff;color:#64748B;border:1px solid #D1D5DB;border-radius:3px;padding:3px 6px;font-size:11px;font-weight:700;cursor:pointer';
-        var amStyle  = (val && ampm === 'AM') ? selStyle : offStyle;
-        var pmStyle  = (val && ampm === 'PM') ? selStyle : offStyle;
-        var amActive = (val && ampm === 'AM') ? '1' : '0';
-        var pmActive = (val && ampm === 'PM') ? '1' : '0';
-        return '<div style="display:flex;align-items:center;gap:4px;' + op + '">' +
-          '<input type="number" id="' + fieldId + '-h" value="' + hStr + '" min="1" max="12" ' +
-            'placeholder="H" inputmode="numeric" ' + dis +
-            ' oninput="syncTimeField(\'' + fieldId + '\')"' +
-            (tabNext ? ' onkeydown="if(event.key===\'Enter\'){event.preventDefault();var nx=document.getElementById(\'' + tabNext + '\');if(nx)nx.focus();}"' : '') +
-            ' style="width:40px;padding:5px 4px;border:1.5px solid ' + borderColor + ';border-radius:5px;font-size:14px;font-weight:700;text-align:center;-moz-appearance:textfield">' +
-          '<span style="font-size:12px;color:#94A3B8;font-weight:600">:00</span>' +
-          '<div style="display:flex;flex-direction:column;gap:2px">' +
-            '<button type="button" id="' + fieldId + '-am" data-active="' + amActive + '" onclick="setAmPm(\'' + fieldId + '\',\'AM\')" ' + dis + ' style="' + amStyle + '">AM</button>' +
-            '<button type="button" id="' + fieldId + '-pm" data-active="' + pmActive + '" onclick="setAmPm(\'' + fieldId + '\',\'PM\')" ' + dis + ' style="' + pmStyle + '">PM</button>' +
-          '</div>' +
-          '<input type="hidden" id="' + fieldId + '" value="' + (val||'') + '">' +
-        '</div>';
-      }
-
-      return '<tr style="' + (isDayOff ? 'background:#FFF5F5;opacity:0.8' : '') + '">' +
-        '<td style="padding:6px 10px;border:1px solid #E2E8F0;font-weight:600;white-space:nowrap">' + d + '</td>' +
-        '<td style="padding:4px 8px;border:1px solid #E2E8F0">' + timeWidget('sc-ci-' + d, sc.clockin||'', '#93C5FD', isDayOff, tabTarget) + '</td>' +
-        '<td style="padding:4px 8px;border:1px solid #E2E8F0;background:#FFFBEB">' + timeWidget('sc-bs-' + d, sc.breakStart||'', '#FDE68A', isDayOff, '') + '</td>' +
-        '<td style="padding:4px 8px;border:1px solid #E2E8F0">' + timeWidget('sc-co-' + d, sc.clockout||'', '#E2E8F0', isDayOff, '') + '</td>' +
-        '<td style="padding:4px 6px;border:1px solid #E2E8F0;background:#FFF5F5;text-align:center"><input type="checkbox" id="sc-do-' + d + '" ' + (isDayOff?'checked':'') + ' onchange="toggleDayOff(\'' + d + '\')" style="width:18px;height:18px;cursor:pointer"></td>' +
-        '<td style="padding:4px 6px;border:1px solid #E2E8F0"><input type="text" id="sc-nt-' + d + '" value="' + (sc.notes||'') + '" placeholder="Notes..." style="width:100%;border:1px solid #E2E8F0;border-radius:5px;font-size:12px;padding:5px"></td>' +
-      '</tr>';
-    }).join('') +
-    '</tbody></table></div>';
-  // Add id to Save button for Tab focus
+  // Focus first driver
   setTimeout(function() {
+    var first = document.getElementById('sc-ci-' + DRIVERS[0]);
+    if(first) first.focus();
     var saveBtn = document.querySelector('[onclick="saveAllOverrides()"]');
     if(saveBtn && !saveBtn.id) saveBtn.id = 'att-save-btn';
   }, 100);
+
   var sel = document.getElementById('att-break-driver');
   if(sel) {
     sel.innerHTML = '<option value="">-- Select --</option>' +
@@ -5003,23 +4994,30 @@ function toggleDayOff(driver) {
 function saveAllOverrides() {
   var changed = 0;
   DRIVERS.forEach(function(d) {
-    // Read from hidden inputs (timeWidget) or fallback to direct time inputs
-    var ci   = getTimeFieldVal('sc-ci-' + d) || (document.getElementById('sc-ci-' + d) ? document.getElementById('sc-ci-' + d).value : '');
-    var bs   = getTimeFieldVal('sc-bs-' + d) || (document.getElementById('sc-bs-' + d) ? document.getElementById('sc-bs-' + d).value : '');
-    var co   = getTimeFieldVal('sc-co-' + d) || (document.getElementById('sc-co-' + d) ? document.getElementById('sc-co-' + d).value : '');
-    var nt   = document.getElementById('sc-nt-' + d);
+    var ciEl = document.getElementById('sc-ci-' + d);
+    var bsEl = document.getElementById('sc-bs-' + d);
+    var coEl = document.getElementById('sc-co-' + d);
+    var ntEl = document.getElementById('sc-nt-' + d);
     var doCb = document.getElementById('sc-do-' + d);
+
+    function toHHMM(el) {
+      if(!el || !el.value.trim()) return '';
+      var h = parseInt(el.value);
+      if(isNaN(h) || h < 0 || h > 23) return '';
+      return String(h).padStart(2,'0') + ':00';
+    }
+
     driverSchedules[d] = {
-      clockin:    ci,
-      breakStart: bs,
-      clockout:   co,
-      notes:      nt ? nt.value || '' : '',
+      clockin:    toHHMM(ciEl),
+      breakStart: toHHMM(bsEl),
+      clockout:   toHHMM(coEl),
+      notes:      ntEl ? ntEl.value || '' : '',
       dayOff:     doCb ? doCb.checked : false
     };
     changed++;
   });
   try { localStorage.setItem('hmart_driver_schedules', JSON.stringify(driverSchedules)); } catch(e) {}
-  toast('toast-att', changed + ' driver schedules saved!', true);
+  toast('toast-att', '✅ ' + changed + ' driver schedules saved!', true);
   loadAttendance();
 }
 
