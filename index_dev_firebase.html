@@ -222,6 +222,30 @@ const FIREBASE_CONFIG = {
 firebase.initializeApp(FIREBASE_CONFIG);
 var _db = firebase.database();
 
+// ── Keep critical paths synced in memory for offline use ──────
+// This tells Firebase to cache these paths in memory continuously
+_db.ref('hmart/orders').keepSynced(true);
+_db.ref('hmart/runs').keepSynced(true);
+_db.ref('hmart/vehicles').keepSynced(true);
+_db.ref('hmart/settings').keepSynced(true);
+
+// ── Monitor real Firebase connection state ────────────────────
+_db.ref('.info/connected').on('value', function(snap) {
+  var connected = snap.val() === true;
+  if(connected) {
+    window._isOnline = true;
+    if(document.readyState !== 'loading') {
+      showNetworkStatus('🟢 Back online — syncing...', 'green');
+      if(typeof syncOfflineQueue === 'function') syncOfflineQueue();
+    }
+  } else {
+    window._isOnline = false;
+    if(document.readyState !== 'loading' && typeof showNetworkStatus === 'function') {
+      showNetworkStatus('📴 Offline — changes saved locally', 'red');
+    }
+  }
+});
+
 // ── Helpers ──────────────────────────────────────────────────
 window._fb = {
   todayStr: function() {
@@ -259,8 +283,37 @@ console.log('[Firebase] Connected to:', FIREBASE_CONFIG.databaseURL);
 
 <script>
 // ============================================================
-// OFFLINE QUEUE — identical interface, now uses Firebase
+// LOCAL CACHE — snapshot of last successful data fetch
+// Used when Firebase is unreachable (offline)
 // ============================================================
+var _localCache = {};
+var CACHE_PREFIX = 'hmart_cache_';
+var CACHE_TTL    = 24 * 60 * 60 * 1000; // 24 hours
+
+function cacheSet(key, data) {
+  try {
+    localStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ ts: Date.now(), data: data }));
+    _localCache[key] = data;
+  } catch(e) {}
+}
+
+function cacheGet(key) {
+  // Memory first
+  if(_localCache[key]) return _localCache[key];
+  try {
+    var raw = localStorage.getItem(CACHE_PREFIX + key);
+    if(!raw) return null;
+    var parsed = JSON.parse(raw);
+    if(Date.now() - parsed.ts > CACHE_TTL) return null;
+    _localCache[key] = parsed.data;
+    return parsed.data;
+  } catch(e) { return null; }
+}
+
+function cacheClear(key) {
+  delete _localCache[key];
+  try { localStorage.removeItem(CACHE_PREFIX + key); } catch(e) {}
+}
 var _offlineQueue = [];
 var _isOnline = navigator.onLine;
 var _syncing  = false;
@@ -285,17 +338,43 @@ function saveQueue() { try { localStorage.setItem('hmart_queue', JSON.stringify(
 async function syncOfflineQueue() {
   if(_syncing || !window._fbReady || !_isOnline || !_offlineQueue.length) return;
   _syncing = true;
-  var synced = 0;
+  var total = _offlineQueue.length;
+  showNetworkStatus('🔄 Syncing ' + total + ' saved action(s)...', 'orange');
+  var synced = 0, failed = [];
+
+  // Sort by actual offline timestamp to preserve order
+  _offlineQueue.sort(function(a, b) { return a.ts - b.ts; });
+
   while(_offlineQueue.length) {
     var item = _offlineQueue[0];
+    // Strip internal tracking fields before sending to Firebase
+    var cleanData = Object.assign({}, item.data);
+    delete cleanData._offlineIso;
+    // Keep _offlineTs and _offlineDate — apiPost uses them for correct timestamps
     try {
-      await apiPost(item.action, item.data, true); // true = bypass queue check
+      await apiPost(item.action, cleanData, true);
       _offlineQueue.shift(); saveQueue(); synced++;
-    } catch(e) { break; }
+    } catch(e) {
+      failed.push(_offlineQueue.shift()); saveQueue();
+    }
   }
   _syncing = false;
-  if(synced) { showNetworkStatus(synced + ' action(s) synced!', 'green'); if(typeof curDriver !== 'undefined' && curDriver) drvLoadData(); }
-  if(!_offlineQueue.length) { try { localStorage.removeItem('hmart_queue'); } catch(e) {} }
+  if(failed.length) {
+    _offlineQueue = failed; saveQueue();
+    showNetworkStatus('⚠ ' + failed.length + ' action(s) failed — tap to retry', 'orange');
+  } else {
+    showNetworkStatus('✅ All ' + synced + ' action(s) synced!', 'green');
+    try { localStorage.removeItem('hmart_queue'); } catch(e) {}
+  }
+  // Refresh visible data
+  if(synced > 0) {
+    if(typeof curDriver !== 'undefined' && curDriver) drvLoadData();
+    if(typeof loadOrders === 'function') {
+      var liveEl = document.getElementById('tab-live');
+      if(liveEl && liveEl.classList.contains('active') && typeof loadLive === 'function') loadLive();
+      else loadOrders();
+    }
+  }
 }
 
 // ============================================================
@@ -310,6 +389,22 @@ async function apiGet(action, params) {
   async function dbGet(path) {
     var snap = await fb.ref(path).once('value');
     return snap.val();
+  }
+
+  // ── Offline: serve from cache ─────────────────────────────
+  if(!window._isOnline) {
+    var cached = cacheGet(action + '_' + today);
+    if(cached) {
+      showNetworkStatus('📴 Offline — showing cached data', 'red');
+      return cached;
+    }
+    // No cache — return empty structure so UI doesn't break
+    showNetworkStatus('📴 Offline — no cached data yet', 'red');
+    if(action === 'getOfficeData') return { orders: [], runs: [], vehicles: [], fuels: [] };
+    if(action === 'getDrvData')    return { orders: [], runs: [] };
+    if(action === 'getLiveData')   return { orders: [], runs: [], vehicles: [] };
+    if(action === 'getFuelLogs')   return [];
+    return null;
   }
 
   try {
@@ -344,7 +439,9 @@ async function apiGet(action, params) {
             orderIds: ru.orderIds || [], _fbKey: ru._fbKey
           };
         });
-      return { orders: orders, runs: runs };
+      var result = { orders: orders, runs: runs };
+      cacheSet('getOfficeData_' + today, result);
+      return result;
     }
 
     // ── getTodayOrders ─────────────────────────────────────
@@ -442,7 +539,13 @@ async function apiGet(action, params) {
     return null;
   } catch(e) {
     console.error('apiGet error:', action, e);
-    showNetworkStatus('Error loading: ' + e.message, 'red');
+    // Try serving from cache on any error (network timeout, etc.)
+    var cached = cacheGet(action + '_' + today) || cacheGet(action);
+    if(cached) {
+      showNetworkStatus('📴 Network error — showing cached data', 'red');
+      return cached;
+    }
+    showNetworkStatus('❌ Error: ' + e.message, 'red');
     return null;
   }
 }
@@ -452,15 +555,23 @@ async function apiGet(action, params) {
 // ============================================================
 async function apiPost(action, data, _bypassQueue) {
   if(!_isOnline && !_bypassQueue) {
-    _offlineQueue.push({ action: action, data: data, ts: Date.now() });
+    // Stamp the ACTUAL time of the action right now — critical for offline
+    var fb = window._fb;
+    var stampedData = Object.assign({}, data, {
+      _offlineTs:   fb.nowTimeStr(),                          // HH:MM of actual action
+      _offlineDate: fb.todayStr(),                            // YYYY-MM-DD of actual action
+      _offlineIso:  new Date().toISOString()                  // full ISO for ordering
+    });
+    _offlineQueue.push({ action: action, data: stampedData, ts: Date.now() });
     saveQueue();
-    showNetworkStatus('Saved locally — will sync when online', 'orange');
+    showNetworkStatus('📴 Saved offline (' + _offlineQueue.length + ' pending)', 'orange');
     return { success: true, offline: true };
   }
   if(!window._fbReady) await new Promise(function(resolve) { window.addEventListener('fb-ready', resolve, {once:true}); });
   var fb = window._fb;
-  var today = fb.todayStr();
-  var now   = fb.nowTimeStr();
+  // Use actual offline timestamp if this is a queued replay, otherwise use current time
+  var today = (data && data._offlineDate) || fb.todayStr();
+  var now   = (data && data._offlineTs)   || fb.nowTimeStr();
   var newId = fb.uid;
 
   // shorthand helpers
@@ -862,12 +973,15 @@ function fmtTime(val) {
 function showNetworkStatus(msg, color) {
   var el = document.getElementById('network-status');
   if(!el) return;
-  el.textContent = msg;
+  // Add pending count if any
+  var queueInfo = _offlineQueue.length > 0 ? ' (' + _offlineQueue.length + ' pending)' : '';
+  el.textContent = msg + (color === 'orange' ? queueInfo : '');
   el.style.background = color === 'green' ? '#059669' : color === 'red' ? '#DC2626' : '#F59E0B';
   el.style.display = 'block';
+  el.style.cursor = (color === 'orange' || _offlineQueue.length) ? 'pointer' : 'default';
   clearTimeout(el._timer);
   if(color === 'green') { el._timer = setTimeout(function() { el.style.display = 'none'; }, 3000); }
-  el.onclick = color === 'orange' ? function() { syncOfflineQueue(); } : null;
+  el.onclick = (_offlineQueue.length || color === 'orange') ? function() { syncOfflineQueue(); } : null;
 }
 </script>
 
@@ -912,10 +1026,23 @@ function showNetworkStatus(msg, color) {
           <button onclick="showDrvFuelScreen()" style="width:100%;padding:16px;background:#fff;border:2px solid #E2E8F0;border-radius:12px;font-size:14px;font-weight:600;color:#374151;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
             <span style="font-size:20px">⛽</span> Fuel Log
           </button>
-          <button onclick="drvBreakTime()" style="width:100%;padding:16px;background:#fff;border:2px solid #E2E8F0;border-radius:12px;font-size:14px;font-weight:600;color:#374151;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+          <button onclick="showBreakTimeScreen()" style="width:100%;padding:16px;background:#fff;border:2px solid #E2E8F0;border-radius:12px;font-size:14px;font-weight:600;color:#374151;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
             <span style="font-size:20px">☕</span> Break Time
           </button>
         </div>
+      </div>
+
+      <!-- BREAK TIME SCREEN -->
+      <div id="drv-break-screen" style="display:none">
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <div style="font-size:17px;font-weight:700;color:#1F4E79">☕ Break Time</div>
+            <button onclick="hideBreakTimeScreen()" class="btn-sm">← Back</button>
+          </div>
+          <div style="font-size:13px;color:#64748B;margin-bottom:14px">Select your name to record break time</div>
+          <div id="break-driver-list" style="display:grid;gap:8px"></div>
+        </div>
+      </div>
       </div>
 
       <!-- FUEL ENTRY SCREEN -->
@@ -1359,6 +1486,13 @@ function showNetworkStatus(msg, color) {
               <div class="off-field"><label>Actual Clock Out</label><input type="time" id="att-actual-clockout"></div>
             </div>
             <button class="btn-primary-off" onclick="saveActualTimes()">Save Actual Times</button>
+          </div>
+          <div class="off-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div class="card-title" style="margin:0">☕ Break Log (Driver Recorded)</div>
+              <button onclick="loadBreakLog()" class="btn-sm-off">Refresh</button>
+            </div>
+            <div id="att-break-log"><div class="empty" style="font-size:12px">Loading...</div></div>
           </div>
         </div>
         <div>
@@ -2027,130 +2161,134 @@ function renderOrders() {
 
 function buildOrderItemHTML(o, displayStatus) {
   var isBiz = !!o.invoiceNum;
-  var cls = '';
-  var statusBadge = '';
+  var isLocked = (displayStatus === 'IN PROGRESS' || displayStatus === 'ON THE WAY');
+  var isCompleted = displayStatus === 'COMPLETED';
+  var hasAmount = !!(o.billAmount && parseFloat(o.billAmount) > 0);
 
-  if(displayStatus === 'ON THE WAY') {
-    cls = 'order-item-ontheway';
-    statusBadge = '<span class="status-ontheway">🕐 READY TO GO</span>';
-  } else if(displayStatus === 'IN PROGRESS') {
-    cls = 'order-item-progress';
-    statusBadge = '<span class="status-progress">🚚 DELIVERING</span>';
-  } else if(displayStatus === 'COMPLETED') {
-    cls = 'order-item-done';
-    statusBadge = '<span class="status-done">✓ DONE</span>';
-  } else {
-    // TRUE PENDING
-    cls = isBiz ? 'order-item-biz' : 'order-item-personal';
-    statusBadge = '<span class="status-pending">⏳ PENDING</span>';
+  // ── Card border/bg per status ──────────────────────────────
+  var cardStyle = 'border-radius:10px;padding:12px 14px;margin-bottom:8px;border-left:4px solid ';
+  if(displayStatus === 'IN PROGRESS')  cardStyle += '#3B82F6;background:#F0F7FF;border:1px solid #BFDBFE;border-left:4px solid #3B82F6';
+  else if(displayStatus === 'ON THE WAY') cardStyle += '#7C3AED;background:#F5F3FF;border:1px solid #C4B5FD;border-left:4px solid #7C3AED';
+  else if(isCompleted)                 cardStyle += '#059669;background:#F0FDF4;border:1px solid #A7F3D0;border-left:4px solid #059669';
+  else if(o.flagged)                   cardStyle += '#DC2626;background:#FFF7F7;border:1px solid #FCA5A5;border-left:4px solid #DC2626';
+  else                                 cardStyle += '#F59E0B;background:#FFFBF0;border:1px solid #FDE68A;border-left:4px solid #F59E0B';
+
+  // ── Status badge ───────────────────────────────────────────
+  var badge = '';
+  if(displayStatus === 'ON THE WAY')  badge = '<span style="background:#7C3AED;color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">🕐 READY TO GO</span>';
+  else if(displayStatus === 'IN PROGRESS') badge = '<span style="background:#3B82F6;color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">🚚 DELIVERING</span>';
+  else if(isCompleted)                badge = '<span style="background:#059669;color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">✓ DONE</span>';
+  else                                badge = '<span style="background:#F59E0B;color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">⏳ PENDING</span>';
+
+  // ── Driver display ─────────────────────────────────────────
+  var driverText = o.driver || (_onTheWayIds[o.orderId] || '');
+  var driverBadge = driverText
+    ? '<span style="font-size:11px;font-weight:600;color:#1F4E79;background:#EFF6FF;padding:2px 8px;border-radius:20px;border:1px solid #BFDBFE">' + driverText + '</span>'
+    : '<span style="font-size:11px;font-weight:600;color:#EF4444">Unassigned</span>';
+
+  // ── Stale warning ──────────────────────────────────────────
+  var staleWarn = '';
+  if(displayStatus === 'PENDING' && o.createdTime) {
+    var nowM = new Date().getHours()*60 + new Date().getMinutes();
+    var ctM  = parseInt(o.createdTime.split(':')[0])*60 + parseInt(o.createdTime.split(':')[1]);
+    var diff = nowM - ctM;
+    if(diff >= 60) staleWarn = '<span style="font-size:10px;font-weight:700;color:#DC2626">🔴 ' + diff + 'min</span>';
+    else if(diff >= 30) staleWarn = '<span style="font-size:10px;font-weight:600;color:#F59E0B">⚠ ' + diff + 'min</span>';
   }
 
-  var driverBadge = '';
-  if(displayStatus === 'ON THE WAY') {
-    driverBadge = '<span style="background:#EDE9FE;color:#7C3AED;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid #C4B5FD">🚚 ' + (_onTheWayIds[o.orderId] || o.driver || '') + '</span>';
-  } else if(o.driver) {
-    driverBadge = '<span style="background:#EFF6FF;color:#1F4E79;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;border:1px solid #BFDBFE">' + o.driver + '</span>';
-  } else {
-    driverBadge = '<span style="font-size:11px;color:#EF4444;font-weight:600">Unassigned</span>';
-  }
+  // ── Build card ─────────────────────────────────────────────
+  var html = '<div class="order-item" style="' + cardStyle + '">' +
 
-  var html = '<div class="order-item ' + cls + '">' +
-    '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">' +
-      '<span style="font-size:14px;font-weight:600">' + o.businessName + '</span>' +
-      (o.invoiceNum ? '<span style="font-size:12px;font-weight:600;color:#059669;background:#D1FAE5;padding:1px 7px;border-radius:4px">' + o.invoiceNum + '</span>' : '') +
-      statusBadge +
-      (isBiz ? '<span class="biz-tag">Business</span>' : '<span class="personal-tag">Personal</span>') +
+    // Row 1: Name + badges
+    '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px">' +
+      '<span style="font-size:14px;font-weight:700;color:#1F2937">' + o.businessName + '</span>' +
+      (o.invoiceNum ? '<span style="font-size:10px;font-weight:700;color:#059669;background:#D1FAE5;padding:1px 6px;border-radius:4px">' + o.invoiceNum + '</span>' : '') +
+      badge +
+      (isBiz ? '<span style="font-size:10px;font-weight:600;color:#1F4E79;background:#EFF6FF;padding:1px 6px;border-radius:4px">Business</span>' : '<span style="font-size:10px;color:#64748B;background:#F1F5F9;padding:1px 6px;border-radius:4px">Personal</span>') +
       driverBadge +
-      (o.flagged ? '<span style="background:#FEE2E2;color:#DC2626;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid #FCA5A5">⚠ Cancel ' + o.cancelCount + 'x</span>' : '') +
+      (o.flagged ? '<span style="font-size:10px;font-weight:700;color:#DC2626;background:#FEE2E2;padding:1px 6px;border-radius:4px">⚠ Cancel×' + o.cancelCount + '</span>' : '') +
+      staleWarn +
+      (isCompleted && o.completeTime ? '<span style="font-size:10px;color:#059669;font-weight:600;margin-left:auto">' + o.completeTime + '</span>' : '') +
     '</div>' +
-    // Quick-edit row: tap amount or payment to edit inline
-    '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px" id="qe-row-' + o.orderId + '">' +
-      // Payment badge — tap to cycle through options
-      '<span onclick="qeCyclePayment(\'' + o.orderId + '\', event)" title="Tap to change payment" style="cursor:pointer;user-select:none" id="qe-pay-badge-' + o.orderId + '">' + payBadge(o.payment || 'Cash') + '</span>' +
-      // Amount — tap to edit
-      (displayStatus !== 'COMPLETED' ?
-        '<span onclick="qeEditAmount(\'' + o.orderId + '\')" id="qe-amt-display-' + o.orderId + '" style="cursor:pointer;font-size:13px;font-weight:600;color:' + (o.billAmount ? '#1F4E79' : '#94A3B8') + ';border-bottom:1px dashed #CBD5E1;padding-bottom:1px" title="Tap to edit amount">' +
-          (o.billAmount ? 'P' + o.billAmount : '+ Add amount') +
+
+    // Row 2: Amount + payment (tap to edit if not completed)
+    '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+      payBadge(o.payment || 'Cash') +
+      (!isCompleted ?
+        // Tappable amount
+        '<span onclick="qeEditAmount(\'' + o.orderId + '\')" id="qe-amt-display-' + o.orderId + '" style="cursor:pointer;font-size:14px;font-weight:700;color:' + (hasAmount ? '#1F4E79' : '#94A3B8') + ';border-bottom:1px dashed #CBD5E1">' +
+          (hasAmount ? 'P' + o.billAmount : '＋ Add amount') +
         '</span>' +
         '<span id="qe-amt-input-' + o.orderId + '" style="display:none;align-items:center;gap:4px">' +
-          '<input type="number" id="qe-amt-val-' + o.orderId + '" value="' + (o.billAmount||'') + '" placeholder="Amount" inputmode="numeric" style="width:90px;padding:4px 7px;border:1px solid #93C5FD;border-radius:5px;font-size:13px" onkeydown="if(event.key===\'Enter\')qeSaveAmount(\'' + o.orderId + '\');if(event.key===\'Escape\')qeCancelAmount(\'' + o.orderId + '\')">' +
-          '<button onclick="qeSaveAmount(\'' + o.orderId + '\')" style="padding:4px 8px;background:#059669;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:13px">✓</button>' +
-          '<button onclick="qeCancelAmount(\'' + o.orderId + '\')" style="padding:4px 7px;background:#F1F5F9;color:#374151;border:none;border-radius:5px;cursor:pointer;font-size:13px">✕</button>' +
+          '<input type="number" id="qe-amt-val-' + o.orderId + '" value="' + (o.billAmount||'') + '" placeholder="Amount" inputmode="numeric" style="width:90px;padding:4px 7px;border:1.5px solid #3B82F6;border-radius:6px;font-size:14px" onkeydown="if(event.key===\'Enter\')qeSaveAmount(\'' + o.orderId + '\');if(event.key===\'Escape\')qeCancelAmount(\'' + o.orderId + '\')">' +
+          '<button onclick="qeSaveAmount(\'' + o.orderId + '\')" style="padding:4px 10px;background:#059669;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:13px;font-weight:600">✓</button>' +
+          '<button onclick="qeCancelAmount(\'' + o.orderId + '\')" style="padding:4px 8px;background:#F1F5F9;color:#374151;border:none;border-radius:5px;cursor:pointer;font-size:13px">✕</button>' +
         '</span>'
-      : '<span style="font-size:13px;font-weight:600;color:#1F4E79">' + (o.billAmount ? 'P' + o.billAmount : '') + '</span>') +
-      (o.change && o.payment === 'Cash' ? '<span style="font-size:12px;color:#059669;font-weight:600">Change: P' + o.change + '</span>' : '') +
-      (o.completeTime ? '<span style="font-size:12px;color:#64748B">Done: ' + o.completeTime + '</span>' : '') +
+      :
+        '<span style="font-size:14px;font-weight:700;color:#1F4E79">' + (hasAmount ? 'P' + o.billAmount : '-') + '</span>'
+      ) +
+      (o.change && o.payment === 'Cash' && hasAmount ? '<span style="font-size:12px;color:#059669;font-weight:600">Change: P' + o.change + '</span>' : '') +
     '</div>' +
-    (o.notes ? '<div style="background:#FEF3C7;border-radius:5px;padding:5px 8px;font-size:12px;color:#92400E;margin-top:6px;font-weight:500">' + o.notes + '</div>' : '') +
-    // Stale order warning — pending for 30+ mins
-    (displayStatus === 'PENDING' && o.createdTime ? (function() {
-      var ct = o.createdTime;
-      var nowM = new Date().getHours()*60 + new Date().getMinutes();
-      var ctM  = ct ? parseInt(ct.split(':')[0])*60 + parseInt(ct.split(':')[1]) : nowM;
-      var diff = nowM - ctM;
-      if(diff >= 60) return '<div style="background:#FEE2E2;border-radius:5px;padding:5px 8px;font-size:11px;color:#DC2626;font-weight:700;margin-top:6px;animation:pulse 1.5s infinite">🔴 Waiting ' + diff + ' min — needs attention!</div>';
-      if(diff >= 30) return '<div style="background:#FEF3C7;border-radius:5px;padding:5px 8px;font-size:11px;color:#92400E;font-weight:600;margin-top:6px">⚠ Waiting ' + diff + ' min</div>';
-      return '';
-    })() : '') +
-    // Timeline — collapsible
+
+    // Notes
+    (o.notes ? '<div style="background:#FEF3C7;border-radius:5px;padding:4px 8px;font-size:12px;color:#92400E;margin-top:5px">' + o.notes + '</div>' : '') +
+
+    // Timeline (collapsible, subtle)
     (o.timeline && Object.values(o.timeline).length > 0 ? (function() {
       var tl = Object.values(o.timeline);
-      var icons = { created:'📝', assigned:'👤', departed:'🚀', started:'▶', cancelled:'✕', completed:'✓' };
-      var colors = { created:'#64748B', assigned:'#1F4E79', departed:'#7C3AED', started:'#1D4ED8', cancelled:'#DC2626', completed:'#059669' };
-      return '<div style="margin-top:6px">' +
-        '<button onclick="toggleTimeline(\'' + o.orderId + '\')" style="font-size:10px;color:#94A3B8;background:none;border:none;cursor:pointer;padding:0">🕐 Timeline (' + tl.length + ' events) ▾</button>' +
-        '<div id="tl-' + o.orderId + '" style="display:none;margin-top:6px;border-left:2px solid #E2E8F0;padding-left:10px">' +
+      var icons = { created:'📝', assigned:'👤', started:'▶', cancelled:'✕', completed:'✓', edited:'✏️' };
+      var colors = { created:'#64748B', assigned:'#1F4E79', started:'#1D4ED8', cancelled:'#DC2626', completed:'#059669', edited:'#F59E0B' };
+      return '<div style="margin-top:5px">' +
+        '<button onclick="toggleTimeline(\'' + o.orderId + '\')" style="font-size:10px;color:#94A3B8;background:none;border:none;cursor:pointer;padding:0">🕐 ' + tl.length + ' event' + (tl.length>1?'s':'') + ' ▾</button>' +
+        '<div id="tl-' + o.orderId + '" style="display:none;margin-top:5px;border-left:2px solid #E2E8F0;padding-left:8px">' +
           tl.map(function(t) {
-            var ic = icons[t.event] || '•';
-            var cl = colors[t.event] || '#64748B';
-            return '<div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:5px;font-size:11px">' +
-              '<span style="color:' + cl + ';font-weight:700;white-space:nowrap">' + t.time + '</span>' +
-              '<span style="color:' + cl + '">' + ic + '</span>' +
-              '<span style="color:#374151">' + (t.note||t.event) + '</span>' +
-              (t.by ? '<span style="color:#94A3B8;margin-left:auto">' + t.by + '</span>' : '') +
+            return '<div style="display:flex;gap:5px;margin-bottom:3px;font-size:11px">' +
+              '<span style="color:' + (colors[t.event]||'#64748B') + ';font-weight:700;white-space:nowrap">' + t.time + '</span>' +
+              '<span style="color:' + (colors[t.event]||'#64748B') + '">' + (icons[t.event]||'•') + '</span>' +
+              '<span style="color:#374151;flex:1">' + (t.note||t.event) + '</span>' +
+              (t.by ? '<span style="color:#94A3B8">' + t.by + '</span>' : '') +
             '</div>';
           }).join('') +
-        '</div>' +
-      '</div>';
+        '</div></div>';
     })() : '');
 
-  if(displayStatus !== 'COMPLETED') {
-    // Amount edit row — show for PENDING orders without amount, or all non-completed
-    var hasAmount = !!(o.billAmount && parseFloat(o.billAmount) > 0);
-    var amountRow = '';
-    if(!hasAmount && displayStatus === 'PENDING') {
-      amountRow = '<div style="background:#FEF9C3;border:1px solid #FDE68A;border-radius:7px;padding:8px 10px;margin-top:8px">' +
-        '<div style="font-size:11px;font-weight:600;color:#92400E;margin-bottom:6px">💰 Amount not set — add when ready</div>' +
-        '<div style="display:flex;gap:6px;align-items:center">' +
-          '<input type="number" id="amt-' + o.orderId + '" placeholder="Bill amount P" inputmode="numeric" style="flex:2;padding:7px 10px;border:1px solid #FDE68A;border-radius:6px;font-size:13px;background:#fff" oninput="calcAmountChange(\'' + o.orderId + '\')">' +
-          '<select id="pay-' + o.orderId + '" style="flex:1;padding:7px 8px;border:1px solid #FDE68A;border-radius:6px;font-size:12px;background:#fff" onchange="calcAmountChange(\'' + o.orderId + '\')">' +
-            PAYMENTS.map(function(p) { return '<option' + (o.payment===p?' selected':'') + '>' + p + '</option>'; }).join('') +
-          '</select>' +
-          '<button onclick="saveOrderAmount(\'' + o.orderId + '\',' + o.rowNum + ')" class="btn-blue-off" style="white-space:nowrap;flex-shrink:0">Save</button>' +
-        '</div>' +
-        '<div id="chg-' + o.orderId + '" style="font-size:12px;color:#059669;font-weight:600;margin-top:4px;display:none"></div>' +
-      '</div>';
-    } else if(hasAmount && (displayStatus === 'PENDING' || displayStatus === 'ON THE WAY')) {
-      amountRow = '<div style="display:flex;gap:6px;margin-top:6px;align-items:center">' +
-        '<input type="number" id="amt-' + o.orderId + '" placeholder="Edit amount..." value="' + (o.billAmount||'') + '" inputmode="numeric" style="width:120px;padding:5px 8px;border:1px solid #E2E8F0;border-radius:5px;font-size:12px" oninput="calcAmountChange(\'' + o.orderId + '\')">' +
-        '<button onclick="saveOrderAmount(\'' + o.orderId + '\',' + o.rowNum + ')" style="padding:5px 10px;font-size:11px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:5px;color:#1F4E79;cursor:pointer">Update Amount</button>' +
-        '<div id="chg-' + o.orderId + '" style="font-size:12px;color:#059669;font-weight:600"></div>' +
-      '</div>';
-    }
-    html += amountRow;
-
-    var isLocked = (displayStatus === 'IN PROGRESS' || displayStatus === 'ON THE WAY');
+  // ── Action row (non-completed only) ───────────────────────
+  if(!isCompleted) {
     if(isLocked) {
-      html += '<div style="display:flex;gap:6px;margin-top:8px;align-items:center;background:#F8FAFC;border-radius:6px;padding:7px 10px">' +
-        '<span style="font-size:13px">🔒</span>' +
-        '<span style="font-size:12px;color:#64748B;flex:1">Driver locked — on delivery</span>' +
-        '<button onclick="toggleOrderEdit(\'' + o.orderId + '\')" style="padding:5px 10px;font-size:11px;background:#fff;border:1px solid #D1D5DB;border-radius:5px;color:#374151;cursor:pointer">✏️ Edit</button>' +
-        '<button class="btn-danger-off" onclick="delOrder(\'' + o.orderId + '\')">Del</button>' +
-      '</div>';
+      // Locked: just show amount edit + lock indicator
+      if(hasAmount) {
+        html += '<div style="margin-top:8px;display:flex;gap:6px;align-items:center">' +
+          '<input type="number" id="amt-' + o.orderId + '" value="' + o.billAmount + '" inputmode="numeric" style="width:110px;padding:5px 8px;border:1px solid #E2E8F0;border-radius:6px;font-size:13px" oninput="calcAmountChange(\'' + o.orderId + '\')">' +
+          '<button onclick="saveOrderAmount(\'' + o.orderId + '\',' + o.rowNum + ')" style="padding:5px 10px;font-size:12px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:6px;color:#1F4E79;cursor:pointer;font-weight:600">Update</button>' +
+          '<div id="chg-' + o.orderId + '" style="font-size:12px;color:#059669;font-weight:600"></div>' +
+          '<span style="font-size:11px;color:#94A3B8;margin-left:auto">🔒 Driver locked</span>' +
+          '<button onclick="delOrder(\'' + o.orderId + '\')" style="padding:5px 8px;font-size:11px;background:#FEE2E2;border:1px solid #FCA5A5;border-radius:5px;color:#DC2626;cursor:pointer">Del</button>' +
+        '</div>';
+      } else {
+        html += '<div style="margin-top:8px;display:flex;gap:6px;align-items:center;font-size:11px;color:#94A3B8">' +
+          '<span>🔒 Driver on delivery</span>' +
+          '<button onclick="delOrder(\'' + o.orderId + '\')" style="margin-left:auto;padding:4px 8px;font-size:11px;background:#FEE2E2;border:1px solid #FCA5A5;border-radius:5px;color:#DC2626;cursor:pointer">Del</button>' +
+        '</div>';
+      }
     } else {
+      // PENDING: amount row if no amount, reassign dropdown, actions
+      if(!hasAmount) {
+        html += '<div style="background:#FFFBF0;border:1px solid #FDE68A;border-radius:7px;padding:8px;margin-top:8px">' +
+          '<div style="display:flex;gap:6px;align-items:center">' +
+            '<input type="number" id="amt-' + o.orderId + '" placeholder="Bill amount P" inputmode="numeric" style="flex:2;padding:7px 9px;border:1px solid #FDE68A;border-radius:6px;font-size:13px;background:#fff" oninput="calcAmountChange(\'' + o.orderId + '\')" onkeydown="if(event.key===\'Enter\')saveOrderAmount(\'' + o.orderId + '\',' + o.rowNum + ')">' +
+            '<select id="pay-' + o.orderId + '" style="flex:1;padding:7px 6px;border:1px solid #FDE68A;border-radius:6px;font-size:12px;background:#fff" onchange="calcAmountChange(\'' + o.orderId + '\')">' +
+              PAYMENTS.map(function(p) { return '<option' + (o.payment===p?' selected':'') + '>' + p + '</option>'; }).join('') +
+            '</select>' +
+            '<button onclick="saveOrderAmount(\'' + o.orderId + '\',' + o.rowNum + ')" style="padding:7px 12px;background:#F59E0B;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0">Save</button>' +
+          '</div>' +
+          '<div id="chg-' + o.orderId + '" style="font-size:12px;color:#059669;font-weight:600;margin-top:4px;display:none"></div>' +
+        '</div>';
+      }
+
+      // Assign/reassign + actions row
       html += '<div style="display:flex;gap:6px;margin-top:8px;align-items:center">' +
-        '<select id="ra-' + o.rowNum + '" style="flex:1;padding:6px 8px;font-size:12px;border:1px solid #D1D5DB;border-radius:5px">' +
-          '<option value="">Reassign...</option>' +
+        '<select id="ra-' + o.rowNum + '" style="flex:1;padding:6px 8px;font-size:12px;border:1px solid #D1D5DB;border-radius:6px;min-width:0">' +
+          '<option value="">' + (o.driver ? 'Reassign...' : 'Assign driver...') + '</option>' +
           DRIVERS.filter(function(d) {
             var sc = getDriverSched(d);
             if(sc && sc.dayOff) return false;
@@ -2161,15 +2299,16 @@ function buildOrderItemHTML(o, displayStatus) {
             return '<option' + (o.driver === d ? ' selected' : '') + ' value="' + d + '">' + d + (onRun ? ' 🚚' : '') + '</option>';
           }).join('') +
         '</select>' +
-        '<button class="btn-blue-off" onclick="reassign(\'' + o.orderId + '\',' + o.rowNum + ')">Save</button>' +
-        '<button onclick="toggleOrderEdit(\'' + o.orderId + '\')" style="padding:6px 10px;font-size:12px;background:#F8FAFC;border:1px solid #D1D5DB;border-radius:5px;color:#374151;cursor:pointer">✏️ Edit</button>' +
-        '<button class="btn-danger-off" onclick="delOrder(\'' + o.orderId + '\')">Del</button>' +
+        '<button onclick="reassign(\'' + o.orderId + '\',' + o.rowNum + ')" style="padding:6px 12px;background:#1F4E79;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0">Save</button>' +
+        '<button onclick="toggleOrderEdit(\'' + o.orderId + '\')" style="padding:6px 8px;font-size:13px;background:#F8FAFC;border:1px solid #D1D5DB;border-radius:6px;cursor:pointer" title="Edit order">✏️</button>' +
+        '<button onclick="delOrder(\'' + o.orderId + '\')" style="padding:6px 8px;font-size:13px;background:#FEE2E2;border:1px solid #FCA5A5;border-radius:6px;cursor:pointer;color:#DC2626" title="Delete">🗑</button>' +
       '</div>';
     }
+
+    // Inline edit panel
     html +=
-    // Inline edit panel (hidden by default)
     '<div id="edit-panel-' + o.orderId + '" style="display:none;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:12px;margin-top:8px">' +
-      '<div style="font-size:11px;font-weight:600;color:#64748B;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em">Edit Order</div>' +
+      '<div style="font-size:11px;font-weight:700;color:#64748B;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em">Edit Order</div>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
         '<div>' +
           '<div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Business Name</div>' +
@@ -2180,24 +2319,24 @@ function buildOrderItemHTML(o, displayStatus) {
           '<input type="text" id="edit-inv-' + o.orderId + '" value="' + (o.invoiceNum||'') + '" style="width:100%;padding:7px 9px;border:1px solid #D1D5DB;border-radius:6px;font-size:13px">' +
         '</div>' +
         '<div>' +
-          '<div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Bill Amount P</div>' +
-          '<input type="number" id="edit-amt-' + o.orderId + '" value="' + (o.billAmount||'') + '" inputmode="numeric" style="width:100%;padding:7px 9px;border:1px solid #D1D5DB;border-radius:6px;font-size:13px" oninput="editCalcChange(\'' + o.orderId + '\')">' +
+          '<div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Bill Amount</div>' +
+          '<input type="number" id="edit-amt-' + o.orderId + '" value="' + (o.billAmount||'') + '" inputmode="numeric" style="width:100%;padding:7px 9px;border:1px solid #D1D5DB;border-radius:6px;font-size:13px" onchange="editCalcChange(\'' + o.orderId + '\')">' +
         '</div>' +
         '<div>' +
-          '<div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Payment Method</div>' +
+          '<div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Payment</div>' +
           '<select id="edit-pay-' + o.orderId + '" style="width:100%;padding:7px 9px;border:1px solid #D1D5DB;border-radius:6px;font-size:13px" onchange="editCalcChange(\'' + o.orderId + '\')">' +
             PAYMENTS.map(function(p) { return '<option' + (o.payment===p?' selected':'') + '>' + p + '</option>'; }).join('') +
           '</select>' +
         '</div>' +
+        '<div style="grid-column:1/-1">' +
+          '<div id="edit-chg-' + o.orderId + '" style="font-size:12px;color:#059669;font-weight:600;display:none;margin-bottom:6px"></div>' +
+          '<div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Notes</div>' +
+          '<input type="text" id="edit-notes-' + o.orderId + '" value="' + (o.notes||'').replace(/"/g,'&quot;') + '" placeholder="Notes..." style="width:100%;padding:7px 9px;border:1px solid #D1D5DB;border-radius:6px;font-size:13px">' +
+        '</div>' +
       '</div>' +
-      '<div style="margin-bottom:8px">' +
-        '<div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Notes</div>' +
-        '<input type="text" id="edit-notes-' + o.orderId + '" value="' + (o.notes||'').replace(/"/g,'&quot;') + '" placeholder="Notes..." style="width:100%;padding:7px 9px;border:1px solid #D1D5DB;border-radius:6px;font-size:13px">' +
-      '</div>' +
-      '<div id="edit-chg-' + o.orderId + '" style="font-size:12px;color:#059669;font-weight:600;margin-bottom:8px;display:none"></div>' +
-      '<div style="display:flex;gap:8px">' +
-        '<button onclick="saveOrderEdit(\'' + o.orderId + '\')" style="flex:1;padding:9px;font-size:13px;font-weight:600;background:#1F4E79;color:#fff;border:none;border-radius:7px;cursor:pointer">Save Changes</button>' +
-        '<button onclick="toggleOrderEdit(\'' + o.orderId + '\')" style="padding:9px 14px;font-size:13px;background:#F1F5F9;color:#374151;border:none;border-radius:7px;cursor:pointer">Cancel</button>' +
+      '<div style="display:flex;gap:6px">' +
+        '<button onclick="saveOrderEdit(\'' + o.orderId + '\')" style="flex:1;padding:8px;background:#1F4E79;color:#fff;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">Save Changes</button>' +
+        '<button onclick="toggleOrderEdit(\'' + o.orderId + '\')" style="padding:8px 12px;background:#F1F5F9;border:none;border-radius:7px;font-size:13px;cursor:pointer;color:#64748B">Cancel</button>' +
       '</div>' +
     '</div>';
   }
@@ -2205,7 +2344,6 @@ function buildOrderItemHTML(o, displayStatus) {
   html += '</div>';
   return html;
 }
-
 async function saveAllAssignments() {
   var btn = document.getElementById('btn-save-all-assign');
   btn.textContent = 'Saving...'; btn.disabled = true;
@@ -3196,23 +3334,120 @@ async function addVehicle() {
 }
 
 // ---- DRIVER BREAK TIME ----
-function drvBreakTime() {
-  if(!curDriver) { toast('drv-toast', 'Select your name first', false); return; }
+function showBreakTimeScreen() {
+  document.getElementById('drv-s1').style.display = 'none';
+  document.getElementById('drv-break-screen').style.display = 'block';
 
   var now = new Date();
   var nowStr = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
   var endH = new Date(now.getTime() + 60*60*1000);
   var endStr = endH.getHours().toString().padStart(2,'0') + ':' + endH.getMinutes().toString().padStart(2,'0');
 
-  if(!confirm('☕ Start Break Time?\n\n' + curDriver + '\nBreak: ' + nowStr + ' → ' + endStr + ' (1 hour)\n\nThis will be recorded in Attendance.')) return;
+  var listEl = document.getElementById('break-driver-list');
+  if(!listEl) return;
+  listEl.innerHTML = DRIVERS.map(function(d) {
+    var sc = getDriverSched(d);
+    var isDayOff = sc && sc.dayOff;
+    return '<button onclick="confirmBreakTime(\'' + d + '\')" ' +
+      (isDayOff ? 'disabled ' : '') +
+      'style="width:100%;padding:14px 16px;background:' + (isDayOff?'#F1F5F9':'#fff') + ';border:2px solid ' + (isDayOff?'#E2E8F0':'#BFDBFE') + ';border-radius:10px;font-size:15px;font-weight:700;color:' + (isDayOff?'#94A3B8':'#1F4E79') + ';cursor:' + (isDayOff?'default':'pointer') + ';text-align:left;display:flex;justify-content:space-between;align-items:center">' +
+      '<span>' + d + '</span>' +
+      (isDayOff ? '<span style="font-size:11px;color:#94A3B8">Day Off</span>' : '<span style="font-size:12px;color:#64748B">Tap to record break</span>') +
+      '</button>';
+  }).join('');
+}
+
+function hideBreakTimeScreen() {
+  document.getElementById('drv-break-screen').style.display = 'none';
+  document.getElementById('drv-s1').style.display = 'block';
+}
+
+function confirmBreakTime(driver) {
+  var now = new Date();
+  var nowStr = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+  var endH = new Date(now.getTime() + 60*60*1000);
+  var endStr = endH.getHours().toString().padStart(2,'0') + ':' + endH.getMinutes().toString().padStart(2,'0');
+
+  // Show break confirmation popup
+  var existing = document.getElementById('break-confirm-popup');
+  if(existing) existing.remove();
+
+  var popup = document.createElement('div');
+  popup.id = 'break-confirm-popup';
+  popup.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  popup.innerHTML =
+    '<div style="background:#fff;border-radius:16px;padding:28px 24px;max-width:340px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.3)">' +
+      '<div style="font-size:48px;margin-bottom:12px">☕</div>' +
+      '<div style="font-size:18px;font-weight:700;color:#1F4E79;margin-bottom:6px">Break Time</div>' +
+      '<div style="font-size:15px;font-weight:600;margin-bottom:16px;color:#374151">' + driver + '</div>' +
+      '<div style="background:#EFF6FF;border-radius:10px;padding:14px;margin-bottom:20px">' +
+        '<div style="display:flex;justify-content:center;gap:20px">' +
+          '<div>' +
+            '<div style="font-size:11px;color:#64748B;margin-bottom:2px">Start</div>' +
+            '<div style="font-size:24px;font-weight:800;color:#1F4E79">' + nowStr + '</div>' +
+          '</div>' +
+          '<div style="font-size:24px;color:#94A3B8;align-self:center">→</div>' +
+          '<div>' +
+            '<div style="font-size:11px;color:#64748B;margin-bottom:2px">End (~1hr)</div>' +
+            '<div style="font-size:24px;font-weight:800;color:#059669">' + endStr + '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="font-size:13px;color:#64748B;margin-bottom:20px">Is this the correct time?</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
+        '<button onclick="document.getElementById(\'break-confirm-popup\').remove()" ' +
+          'style="padding:14px;background:#F1F5F9;border:none;border-radius:10px;font-size:14px;font-weight:600;color:#64748B;cursor:pointer">Cancel</button>' +
+        '<button onclick="finalizeBreakTime(\'' + driver + '\',\'' + nowStr + '\',\'' + endStr + '\')" ' +
+          'style="padding:14px;background:#1F4E79;border:none;border-radius:10px;font-size:14px;font-weight:700;color:#fff;cursor:pointer">✓ Confirm</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(popup);
+}
+
+function finalizeBreakTime(driver, nowStr, endStr) {
+  // Remove popup
+  var popup = document.getElementById('break-confirm-popup');
+  if(popup) popup.remove();
 
   // Save to actualBreaks
   var today = new Date().toLocaleDateString('en-CA');
-  actualBreaks[curDriver] = nowStr;
+  actualBreaks[driver] = nowStr;
   try { localStorage.setItem('hmart_actual_breaks_' + today, JSON.stringify(actualBreaks)); } catch(e) {}
 
+  // Save break log to Firebase
+  if(window._fb) {
+    window._fb.ref('hmart/breakLogs').push({
+      driver: driver, date: today,
+      time: nowStr, endEst: endStr,
+      loggedAt: new Date().toISOString()
+    }).catch(function(){});
+  }
+
   playSound('success');
-  toast('drv-toast', '☕ Break recorded: ' + nowStr + ' → ' + endStr, true);
+
+  // Show warm completion message
+  var msg = document.getElementById('break-done-msg');
+  if(msg) msg.remove();
+  var done = document.createElement('div');
+  done.id = 'break-done-msg';
+  done.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  done.innerHTML =
+    '<div style="background:#fff;border-radius:16px;padding:32px 24px;max-width:320px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.3)">' +
+      '<div style="font-size:56px;margin-bottom:16px">☕</div>' +
+      '<div style="font-size:20px;font-weight:800;color:#1F4E79;margin-bottom:8px">Enjoy your break!</div>' +
+      '<div style="font-size:15px;font-weight:600;color:#059669;margin-bottom:12px">' + nowStr + ' → ' + endStr + '</div>' +
+      '<div style="font-size:14px;color:#64748B;line-height:1.6;margin-bottom:24px">' +
+        driver + ', take a good rest. 😊<br>You\'ve been working hard!' +
+      '</div>' +
+      '<button onclick="document.getElementById(\'break-done-msg\').remove();hideBreakTimeScreen();" ' +
+        'style="width:100%;padding:14px;background:#1F4E79;border:none;border-radius:10px;font-size:15px;font-weight:700;color:#fff;cursor:pointer">Thanks! 👍</button>' +
+    '</div>';
+  document.body.appendChild(done);
+  // Auto-close after 8 seconds
+  setTimeout(function() {
+    var d = document.getElementById('break-done-msg');
+    if(d) { d.remove(); hideBreakTimeScreen(); }
+  }, 8000);
 }
 
 // ---- DRIVER FUEL SCREEN ----
@@ -4561,28 +4796,68 @@ function getDriverSched(driver) {
   return driverSchedules[driver] || { clockin:'08:00', breakStart:'12:00', clockout:'17:00', notes:'' };
 }
 
-function autoFillSchedule(driver) {
-  var ciEl = document.getElementById('sc-ci-' + driver);
-  var bsEl = document.getElementById('sc-bs-' + driver);
-  var coEl = document.getElementById('sc-co-' + driver);
-  if(!ciEl || !ciEl.value) return;
+// ---- CUSTOM TIME WIDGET HELPERS ----
+function syncTimeField(fieldId) {
+  var hEl   = document.getElementById(fieldId + '-h');
+  var hidEl = document.getElementById(fieldId);
+  if(!hEl || !hidEl) return;
+  var h12 = parseInt(hEl.value);
+  if(!h12 || h12 < 1 || h12 > 12) { hidEl.value = ''; return; }
+  // Get AM/PM state
+  var amBtn = document.getElementById(fieldId + '-am');
+  var pmBtn = document.getElementById(fieldId + '-pm');
+  // Default: no selection yet → pick based on common sense
+  var isAM = amBtn && amBtn.style.backgroundColor === 'rgb(31, 78, 121)';
+  var isPM = pmBtn && pmBtn.style.backgroundColor === 'rgb(31, 78, 121)';
+  if(!isAM && !isPM) {
+    // Auto-select: 1-7 = AM if not yet set, 8-12 = AM too unless explicitly PM
+    isAM = true; isPM = false;
+    setAmPm(fieldId, 'AM');
+    return; // setAmPm will call syncTimeField again
+  }
+  var h24 = isPM ? (h12 === 12 ? 12 : h12 + 12) : (h12 === 12 ? 0 : h12);
+  hidEl.value = String(h24).padStart(2,'0') + ':00';
+  // Trigger auto-fill for clockin
+  var driverName = fieldId.replace('sc-ci-','');
+  if(fieldId.indexOf('sc-ci-') === 0) {
+    autoFillSchedule(driverName);
+  }
+}
 
-  var parts = ciEl.value.split(':');
+function setAmPm(fieldId, ampm) {
+  var amBtn = document.getElementById(fieldId + '-am');
+  var pmBtn = document.getElementById(fieldId + '-pm');
+  if(!amBtn || !pmBtn) return;
+  var activeStyle  = 'background:#1F4E79;color:#fff;border-color:#1F4E79';
+  var inactiveStyle= 'background:#fff;color:#64748B;border-color:#D1D5DB';
+  if(ampm === 'AM') {
+    amBtn.setAttribute('style', amBtn.getAttribute('style').replace(/background:[^;]+;color:[^;]+;border:[^;]+/, '') + ';background:#1F4E79;color:#fff;border:1px solid #1F4E79');
+    pmBtn.setAttribute('style', pmBtn.getAttribute('style').replace(/background:[^;]+;color:[^;]+;border:[^;]+/, '') + ';background:#fff;color:#64748B;border:1px solid #D1D5DB');
+  } else {
+    pmBtn.setAttribute('style', pmBtn.getAttribute('style').replace(/background:[^;]+;color:[^;]+;border:[^;]+/, '') + ';background:#1F4E79;color:#fff;border:1px solid #1F4E79');
+    amBtn.setAttribute('style', amBtn.getAttribute('style').replace(/background:[^;]+;color:[^;]+;border:[^;]+/, '') + ';background:#fff;color:#64748B;border:1px solid #D1D5DB');
+  }
+  syncTimeField(fieldId);
+}
+
+function getTimeFieldVal(fieldId) {
+  var hidEl = document.getElementById(fieldId);
+  return hidEl ? hidEl.value : '';
+}
+
+function autoFillSchedule(driver) {
+  var ciVal = getTimeFieldVal('sc-ci-' + driver);
+  var bsEl  = document.getElementById('sc-bs-' + driver);
+  var coEl  = document.getElementById('sc-co-' + driver);
+  if(!ciVal) return;
+  var parts = ciVal.split(':');
   var h = parseInt(parts[0]);
   var m = parseInt(parts[1]||0);
-
-  // Rules: 9hr shift, break 4hrs after start
-  // 08:00→17:00 break 12:00 | 09:00→18:00 break 13:00 | etc up to 01:00→10:00 break 05:00
-  var breakH   = h + 4;
+  var breakH    = h + 4;
   var clockoutH = h + 9;
-  // Handle midnight rollover
-  if(breakH   >= 24) breakH   -= 24;
+  if(breakH    >= 24) breakH    -= 24;
   if(clockoutH >= 24) clockoutH -= 24;
-
-  var fmt = function(hr, mn) {
-    return String(hr).padStart(2,'0') + ':' + String(mn||0).padStart(2,'0');
-  };
-
+  var fmt = function(hr, mn) { return String(hr).padStart(2,'0') + ':' + String(mn||0).padStart(2,'0'); };
   if(bsEl && !bsEl.value) bsEl.value = fmt(breakH, m);
   if(coEl && !coEl.value) coEl.value = fmt(clockoutH, m);
 }
@@ -4602,17 +4877,44 @@ function buildAttDriverTable() {
     DRIVERS.map(function(d, idx) {
       var sc = getDriverSched(d);
       var isDayOff = !!(sc.dayOff);
-      // Tab from last driver's clockin goes to Save button
       var nextDriver = DRIVERS[idx + 1];
-      var tabTarget = nextDriver ? 'sc-ci-' + nextDriver : 'att-save-btn';
+      var tabTarget = nextDriver ? 'sc-ci-h-' + nextDriver : 'att-save-btn';
+
+      function timeWidget(fieldId, val, borderColor, disabled, tabNext) {
+        // Parse existing value HH:MM
+        var h24 = 0, mm = '00';
+        if(val) {
+          var p = val.split(':');
+          h24 = parseInt(p[0])||0;
+          mm  = p[1] || '00';
+        }
+        var ampm = h24 < 12 ? 'AM' : 'PM';
+        var h12  = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+        var hStr = val ? String(h12) : '';
+        var dis  = disabled ? 'disabled' : '';
+        var op   = disabled ? 'opacity:0.4;' : '';
+        return '<div style="display:flex;align-items:center;gap:3px;' + op + '">' +
+          '<input type="number" id="' + fieldId + '-h" value="' + hStr + '" min="1" max="12" placeholder="H" inputmode="numeric" ' + dis +
+            ' onchange="syncTimeField(\'' + fieldId + '\')"' +
+            ' oninput="syncTimeField(\'' + fieldId + '\')"' +
+            (tabNext ? ' onkeydown="if(event.key===\'Tab\'){event.preventDefault();var nx=document.getElementById(\'' + tabNext + '\');if(nx)nx.focus();}"' : '') +
+            ' style="width:38px;padding:5px 4px;border:1.5px solid ' + borderColor + ';border-radius:5px;font-size:13px;text-align:center;-moz-appearance:textfield;">' +
+          '<span style="font-size:11px;color:#94A3B8">:00</span>' +
+          '<div style="display:flex;flex-direction:column;gap:2px">' +
+            '<button type="button" onclick="setAmPm(\'' + fieldId + '\',\'AM\')" id="' + fieldId + '-am" ' + dis +
+              ' style="padding:2px 5px;font-size:10px;font-weight:700;border-radius:3px;cursor:pointer;border:1px solid ' + (ampm==='AM'&&val?'#1F4E79':'#D1D5DB') + ';background:' + (ampm==='AM'&&val?'#1F4E79':'#fff') + ';color:' + (ampm==='AM'&&val?'#fff':'#64748B') + '">AM</button>' +
+            '<button type="button" onclick="setAmPm(\'' + fieldId + '\',\'PM\')" id="' + fieldId + '-pm" ' + dis +
+              ' style="padding:2px 5px;font-size:10px;font-weight:700;border-radius:3px;cursor:pointer;border:1px solid ' + (ampm==='PM'&&val?'#1F4E79':'#D1D5DB') + ';background:' + (ampm==='PM'&&val?'#1F4E79':'#fff') + ';color:' + (ampm==='PM'&&val?'#fff':'#64748B') + '">PM</button>' +
+          '</div>' +
+          '<input type="hidden" id="' + fieldId + '" value="' + (val||'') + '">' +
+        '</div>';
+      }
+
       return '<tr style="' + (isDayOff ? 'background:#FFF5F5;opacity:0.8' : '') + '">' +
         '<td style="padding:6px 10px;border:1px solid #E2E8F0;font-weight:600;white-space:nowrap">' + d + '</td>' +
-        '<td style="padding:4px 6px;border:1px solid #E2E8F0"><input type="time" id="sc-ci-' + d + '" value="' + (sc.clockin||'') + '" ' + (isDayOff?'disabled':'') +
-          ' onchange="autoFillSchedule(\'' + d + '\')"' +
-          ' onkeydown="if(event.key===\'Tab\'){event.preventDefault();var nx=document.getElementById(\'' + tabTarget + '\');if(nx){nx.focus();}}"' +
-          ' style="width:100%;border:1.5px solid #93C5FD;border-radius:5px;font-size:13px;text-align:center;padding:5px;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
-        '<td style="padding:4px 6px;border:1px solid #E2E8F0;background:#FFFBEB"><input type="time" id="sc-bs-' + d + '" value="' + (sc.breakStart||'') + '" ' + (isDayOff?'disabled':'') + ' style="width:100%;border:1px solid #FDE68A;border-radius:5px;font-size:13px;text-align:center;padding:5px;background:transparent;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
-        '<td style="padding:4px 6px;border:1px solid #E2E8F0"><input type="time" id="sc-co-' + d + '" value="' + (sc.clockout||'') + '" ' + (isDayOff?'disabled':'') + ' style="width:100%;border:1px solid #E2E8F0;border-radius:5px;font-size:13px;text-align:center;padding:5px;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
+        '<td style="padding:4px 8px;border:1px solid #E2E8F0">' + timeWidget('sc-ci-' + d, sc.clockin||'', '#93C5FD', isDayOff, tabTarget) + '</td>' +
+        '<td style="padding:4px 8px;border:1px solid #E2E8F0;background:#FFFBEB">' + timeWidget('sc-bs-' + d, sc.breakStart||'', '#FDE68A', isDayOff, '') + '</td>' +
+        '<td style="padding:4px 8px;border:1px solid #E2E8F0">' + timeWidget('sc-co-' + d, sc.clockout||'', '#E2E8F0', isDayOff, '') + '</td>' +
         '<td style="padding:4px 6px;border:1px solid #E2E8F0;background:#FFF5F5;text-align:center"><input type="checkbox" id="sc-do-' + d + '" ' + (isDayOff?'checked':'') + ' onchange="toggleDayOff(\'' + d + '\')" style="width:18px;height:18px;cursor:pointer"></td>' +
         '<td style="padding:4px 6px;border:1px solid #E2E8F0"><input type="text" id="sc-nt-' + d + '" value="' + (sc.notes||'') + '" placeholder="Notes..." style="width:100%;border:1px solid #E2E8F0;border-radius:5px;font-size:12px;padding:5px"></td>' +
       '</tr>';
@@ -4664,16 +4966,16 @@ function toggleDayOff(driver) {
 function saveAllOverrides() {
   var changed = 0;
   DRIVERS.forEach(function(d) {
-    var ci = document.getElementById('sc-ci-' + d);
-    var bs = document.getElementById('sc-bs-' + d);
-    var co = document.getElementById('sc-co-' + d);
-    var nt = document.getElementById('sc-nt-' + d);
+    // Read from hidden inputs (timeWidget) or fallback to direct time inputs
+    var ci   = getTimeFieldVal('sc-ci-' + d) || (document.getElementById('sc-ci-' + d) ? document.getElementById('sc-ci-' + d).value : '');
+    var bs   = getTimeFieldVal('sc-bs-' + d) || (document.getElementById('sc-bs-' + d) ? document.getElementById('sc-bs-' + d).value : '');
+    var co   = getTimeFieldVal('sc-co-' + d) || (document.getElementById('sc-co-' + d) ? document.getElementById('sc-co-' + d).value : '');
+    var nt   = document.getElementById('sc-nt-' + d);
     var doCb = document.getElementById('sc-do-' + d);
-    if(!ci) return;
     driverSchedules[d] = {
-      clockin:    ci.value || '',
-      breakStart: bs ? bs.value || '' : '',
-      clockout:   co ? co.value || '' : '',
+      clockin:    ci,
+      breakStart: bs,
+      clockout:   co,
       notes:      nt ? nt.value || '' : '',
       dayOff:     doCb ? doCb.checked : false
     };
@@ -4682,6 +4984,30 @@ function saveAllOverrides() {
   try { localStorage.setItem('hmart_driver_schedules', JSON.stringify(driverSchedules)); } catch(e) {}
   toast('toast-att', changed + ' driver schedules saved!', true);
   loadAttendance();
+}
+
+async function loadBreakLog() {
+  var el = document.getElementById('att-break-log');
+  if(!el) return;
+  el.innerHTML = '<div class="empty" style="font-size:12px">Loading...</div>';
+  try {
+    var fb = window._fb;
+    var today = fb.todayStr();
+    var snap = await fb.ref('hmart/breakLogs').limitToLast(30).once('value');
+    var logs = fb.objToArr(snap.val() || {}).filter(function(l){ return l.date === today; })
+      .sort(function(a,b){ return (a.time||'') < (b.time||'') ? 1 : -1; });
+    if(!logs.length) { el.innerHTML = '<div class="empty" style="font-size:12px">No break logs today</div>'; return; }
+    el.innerHTML = logs.map(function(l) {
+      return '<div style="display:flex;gap:10px;align-items:center;padding:7px 8px;border-bottom:1px solid #F1F5F9;font-size:12px">' +
+        '<span style="font-size:16px">☕</span>' +
+        '<span style="font-weight:700;flex:1">' + l.driver + '</span>' +
+        '<span style="color:#1F4E79;font-weight:600">' + l.time + '</span>' +
+        '<span style="color:#64748B">→ ~' + l.endEst + '</span>' +
+      '</div>';
+    }).join('');
+  } catch(e) {
+    el.innerHTML = '<div class="empty" style="font-size:12px">Error loading</div>';
+  }
 }
 
 function saveActualTimes() {
@@ -4717,6 +5043,7 @@ function calcHours(start, end) {
 
 function loadAttendance() {
   buildAttDriverTable();
+  loadBreakLog();
   var dateEl = document.getElementById('att-date');
   var selDate = new Date().toISOString().slice(0,10);
   if(dateEl) {
