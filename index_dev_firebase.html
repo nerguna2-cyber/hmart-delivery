@@ -907,10 +907,13 @@ function showNetworkStatus(msg, color) {
             </select>
           </div>
         </div>
-        <!-- Fuel entry shortcut -->
-        <div style="margin-top:12px">
-          <button onclick="showDrvFuelScreen()" style="width:100%;padding:16px;background:#fff;border:2px solid #E2E8F0;border-radius:12px;font-size:15px;font-weight:600;color:#374151;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px">
-            <span style="font-size:22px">⛽</span> Fuel Log
+        <!-- Quick actions: Fuel entry + Break time -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
+          <button onclick="showDrvFuelScreen()" style="width:100%;padding:16px;background:#fff;border:2px solid #E2E8F0;border-radius:12px;font-size:14px;font-weight:600;color:#374151;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+            <span style="font-size:20px">⛽</span> Fuel Log
+          </button>
+          <button onclick="drvBreakTime()" style="width:100%;padding:16px;background:#fff;border:2px solid #E2E8F0;border-radius:12px;font-size:14px;font-weight:600;color:#374151;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+            <span style="font-size:20px">☕</span> Break Time
           </button>
         </div>
       </div>
@@ -1341,8 +1344,8 @@ function showNetworkStatus(msg, color) {
             </div>
           </div>
           <div class="off-card">
-            <div class="card-title">Record Actual Times</div>
-            <div style="font-size:12px;color:#64748B;margin-bottom:10px">Update when driver actually took break or clocked out late.</div>
+            <div class="card-title">Record Actual Break</div>
+            <div style="font-size:12px;color:#64748B;margin-bottom:10px">Select driver and save when they actually take their break.</div>
             <div class="off-field">
               <label>Driver</label>
               <select id="att-break-driver"><option value="">-- Select --</option></select>
@@ -1352,11 +1355,6 @@ function showNetworkStatus(msg, color) {
               <div class="off-field"><label>Actual Clock Out</label><input type="time" id="att-actual-clockout"></div>
             </div>
             <button class="btn-primary-off" onclick="saveActualTimes()">Save Actual Times</button>
-          </div>
-          <div class="off-card">
-            <div class="card-title">Overtime Balance</div>
-            <div style="font-size:12px;color:#64748B;margin-bottom:8px">Drivers who work past scheduled time accumulate overtime credit.</div>
-            <div id="overtime-list"><div class="empty" style="font-size:12px">Select a date to view</div></div>
           </div>
         </div>
         <div>
@@ -3193,6 +3191,26 @@ async function addVehicle() {
   }
 }
 
+// ---- DRIVER BREAK TIME ----
+function drvBreakTime() {
+  if(!curDriver) { toast('drv-toast', 'Select your name first', false); return; }
+
+  var now = new Date();
+  var nowStr = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+  var endH = new Date(now.getTime() + 60*60*1000);
+  var endStr = endH.getHours().toString().padStart(2,'0') + ':' + endH.getMinutes().toString().padStart(2,'0');
+
+  if(!confirm('☕ Start Break Time?\n\n' + curDriver + '\nBreak: ' + nowStr + ' → ' + endStr + ' (1 hour)\n\nThis will be recorded in Attendance.')) return;
+
+  // Save to actualBreaks
+  var today = new Date().toLocaleDateString('en-CA');
+  actualBreaks[curDriver] = nowStr;
+  try { localStorage.setItem('hmart_actual_breaks_' + today, JSON.stringify(actualBreaks)); } catch(e) {}
+
+  playSound('success');
+  toast('drv-toast', '☕ Break recorded: ' + nowStr + ' → ' + endStr, true);
+}
+
 // ---- DRIVER FUEL SCREEN ----
 var _lastRunVehicle = null;
 var _vehicleFuelHistory = {};
@@ -3432,28 +3450,51 @@ async function loadLive() {
 
     // ── ACTIVE RUNS ──
     if(active.length) {
-      html += '<div class="section-label">On the road (' + active.length + ')</div>';
-      active.forEach(function(r) {
-        var myOrds = orders.filter(function(o) { return r.orderIds && r.orderIds.indexOf(o.orderId) > -1; });
-        html += '<div class="run-card">' +
-          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">' +
-            '<span style="font-size:15px;font-weight:700">' + r.driver + '</span>' +
-            '<span class="badge badge-bank">On Road</span>' +
-            '<span style="font-size:12px;color:#64748B;margin-left:auto">' + fmtTime(r.depTime) + '</span>' +
-          '</div>' +
-          '<div style="font-size:13px;color:#64748B">' + r.vehicle + ' | Dep: ' + r.depKm + ' km | ' + fmtTime(r.depTime) + '</div>' +
-          (myOrds.length ? '<div style="margin-top:10px;border-top:1px solid #E2E8F0;padding-top:8px">' +
-            myOrds.map(function(o) {
-              var isA = o.status === 'IN PROGRESS'; var isD = o.status === 'COMPLETED';
-              return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #F8FAFC">' +
-                '<span style="font-size:14px;flex:1;font-weight:' + (isA?'700':'400') + ';color:' + (isA?'#1E40AF':isD?'#059669':'#374151') + '">' +
-                  (isA ? '&#9654; ' : isD ? '&#10003; ' : '') + o.businessName +
-                '</span>' + payBadge(o.payment||'Cash') +
-                (isD && o.completeTime ? '<span style="font-size:11px;color:#64748B">' + fmtTime(o.completeTime) + '</span>' : '') +
-              '</div>';
-            }).join('') + '</div>' : '') +
-        '</div>';
-      });
+      // Separate emergency and normal runs
+      var emergActive = active.filter(function(r) { return r.destination && r.destination.indexOf('🚨') === 0; });
+      var normalActive = active.filter(function(r) { return !r.destination || r.destination.indexOf('🚨') !== 0; });
+
+      // Show emergency runs first with bold styling
+      if(emergActive.length) {
+        html += '<div class="section-label" style="color:#DC2626;background:#FEF2F2;border-radius:6px;padding:6px 10px">🚨 EMERGENCY RUNS (' + emergActive.length + ')</div>';
+        emergActive.forEach(function(r) {
+          var dest = (r.destination||'').replace('🚨 ','');
+          html += '<div style="background:#FFF7ED;border:2px solid #F97316;border-radius:10px;padding:14px;margin-bottom:8px;box-shadow:0 2px 8px rgba(249,115,22,0.2)">' +
+            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">' +
+              '<span style="background:#DC2626;color:#fff;font-size:13px;font-weight:800;padding:3px 10px;border-radius:20px;letter-spacing:0.03em">🚨 EMERGENCY</span>' +
+              '<span style="font-size:15px;font-weight:700">' + r.driver + '</span>' +
+              '<span style="font-size:12px;color:#92400E;margin-left:auto;font-weight:600">' + fmtTime(r.depTime) + '</span>' +
+            '</div>' +
+            '<div style="font-size:13px;font-weight:700;color:#92400E;margin-bottom:4px">' + dest + '</div>' +
+            '<div style="font-size:12px;color:#64748B">🚐 ' + r.vehicle + ' | Dep: ' + r.depKm + ' km | ' + fmtTime(r.depTime) + '</div>' +
+          '</div>';
+        });
+      }
+
+      if(normalActive.length) {
+        html += '<div class="section-label">On the road (' + normalActive.length + ')</div>';
+        normalActive.forEach(function(r) {
+          var myOrds = orders.filter(function(o) { return r.orderIds && r.orderIds.indexOf(o.orderId) > -1; });
+          html += '<div class="run-card">' +
+            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">' +
+              '<span style="font-size:15px;font-weight:700">' + r.driver + '</span>' +
+              '<span class="badge badge-bank">On Road</span>' +
+              '<span style="font-size:12px;color:#64748B;margin-left:auto">' + fmtTime(r.depTime) + '</span>' +
+            '</div>' +
+            '<div style="font-size:13px;color:#64748B">' + r.vehicle + ' | Dep: ' + r.depKm + ' km | ' + fmtTime(r.depTime) + '</div>' +
+            (myOrds.length ? '<div style="margin-top:10px;border-top:1px solid #E2E8F0;padding-top:8px">' +
+              myOrds.map(function(o) {
+                var isA = o.status === 'IN PROGRESS'; var isD = o.status === 'COMPLETED';
+                return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #F8FAFC">' +
+                  '<span style="font-size:14px;flex:1;font-weight:' + (isA?'700':'400') + ';color:' + (isA?'#1E40AF':isD?'#059669':'#374151') + '">' +
+                    (isA ? '&#9654; ' : isD ? '&#10003; ' : '') + o.businessName +
+                  '</span>' + payBadge(o.payment||'Cash') +
+                  (isD && o.completeTime ? '<span style="font-size:11px;color:#64748B">' + fmtTime(o.completeTime) + '</span>' : '') +
+                '</div>';
+              }).join('') + '</div>' : '') +
+          '</div>';
+        });
+      }
     }
 
     // ── COMPLETED RUNS ──
@@ -4472,7 +4513,6 @@ function printReport(){window.print();}
 var driverSchedules = {};
 var actualBreaks = {};
 var actualClockouts = {};
-var overtimeBalance = {};
 
 (function(){
   try {
@@ -4484,12 +4524,37 @@ var overtimeBalance = {};
     var ac = localStorage.getItem('hmart_actual_clockouts_' + today);
     if(ac) actualClockouts = JSON.parse(ac);
     var ob = localStorage.getItem('hmart_overtime_balance');
-    if(ob) overtimeBalance = JSON.parse(ob);
   } catch(e) {}
 })();
 
 function getDriverSched(driver) {
   return driverSchedules[driver] || { clockin:'08:00', breakStart:'12:00', clockout:'17:00', notes:'' };
+}
+
+function autoFillSchedule(driver) {
+  var ciEl = document.getElementById('sc-ci-' + driver);
+  var bsEl = document.getElementById('sc-bs-' + driver);
+  var coEl = document.getElementById('sc-co-' + driver);
+  if(!ciEl || !ciEl.value) return;
+
+  var parts = ciEl.value.split(':');
+  var h = parseInt(parts[0]);
+  var m = parseInt(parts[1]||0);
+
+  // Rules: 9hr shift, break 4hrs after start
+  // 08:00→17:00 break 12:00 | 09:00→18:00 break 13:00 | etc up to 01:00→10:00 break 05:00
+  var breakH   = h + 4;
+  var clockoutH = h + 9;
+  // Handle midnight rollover
+  if(breakH   >= 24) breakH   -= 24;
+  if(clockoutH >= 24) clockoutH -= 24;
+
+  var fmt = function(hr, mn) {
+    return String(hr).padStart(2,'0') + ':' + String(mn||0).padStart(2,'0');
+  };
+
+  if(bsEl && !bsEl.value) bsEl.value = fmt(breakH, m);
+  if(coEl && !coEl.value) coEl.value = fmt(clockoutH, m);
 }
 
 function buildAttDriverTable() {
@@ -4509,7 +4574,7 @@ function buildAttDriverTable() {
       var isDayOff = !!(sc.dayOff);
       return '<tr style="' + (isDayOff ? 'background:#FFF5F5;opacity:0.8' : '') + '">' +
         '<td style="padding:6px 10px;border:1px solid #E2E8F0;font-weight:600;white-space:nowrap">' + d + '</td>' +
-        '<td style="padding:4px 6px;border:1px solid #E2E8F0"><input type="time" id="sc-ci-' + d + '" value="' + (sc.clockin||'') + '" ' + (isDayOff?'disabled':'') + ' style="width:100%;border:1px solid #E2E8F0;border-radius:5px;font-size:13px;text-align:center;padding:5px;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
+        '<td style="padding:4px 6px;border:1px solid #E2E8F0"><input type="time" id="sc-ci-' + d + '" value="' + (sc.clockin||'') + '" ' + (isDayOff?'disabled':'') + ' onchange="autoFillSchedule(\'' + d + '\')" style="width:100%;border:1px solid #E2E8F0;border-radius:5px;font-size:13px;text-align:center;padding:5px;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
         '<td style="padding:4px 6px;border:1px solid #E2E8F0;background:#FFFBEB"><input type="time" id="sc-bs-' + d + '" value="' + (sc.breakStart||'') + '" ' + (isDayOff?'disabled':'') + ' style="width:100%;border:1px solid #FDE68A;border-radius:5px;font-size:13px;text-align:center;padding:5px;background:transparent;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
         '<td style="padding:4px 6px;border:1px solid #E2E8F0"><input type="time" id="sc-co-' + d + '" value="' + (sc.clockout||'') + '" ' + (isDayOff?'disabled':'') + ' style="width:100%;border:1px solid #E2E8F0;border-radius:5px;font-size:13px;text-align:center;padding:5px;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
         '<td style="padding:4px 6px;border:1px solid #E2E8F0;background:#FFF5F5;text-align:center"><input type="checkbox" id="sc-do-' + d + '" ' + (isDayOff?'checked':'') + ' onchange="toggleDayOff(\'' + d + '\')" style="width:18px;height:18px;cursor:pointer"></td>' +
@@ -4577,58 +4642,12 @@ function saveActualTimes() {
   if(clockout) {
     actualClockouts[driver] = clockout;
     try { localStorage.setItem('hmart_actual_clockouts_' + attDate, JSON.stringify(actualClockouts)); } catch(e) {}
-    var sched = getDriverSched(driver);
-    if(sched.clockout) {
-      var schedMins = parseInt(sched.clockout.split(':')[0])*60 + parseInt(sched.clockout.split(':')[1]);
-      var actMins   = parseInt(clockout.split(':')[0])*60 + parseInt(clockout.split(':')[1]);
-      var diff = actMins - schedMins;
-      if(!overtimeBalance[driver]) overtimeBalance[driver] = 0;
-      overtimeBalance[driver] += diff;
-      try { localStorage.setItem('hmart_overtime_balance', JSON.stringify(overtimeBalance)); } catch(e) {}
-    }
   }
   var msg = driver + ' updated';
   if(breakT) msg += ' | Break: ' + breakT;
   if(clockout) msg += ' | Out: ' + clockout;
   toast('toast-att', msg, true);
   loadAttendance();
-  renderOvertimeList();
-}
-
-function renderOvertimeList() {
-  var el = document.getElementById('overtime-list');
-  if(!el) return;
-  var hasData = false;
-  var html = DRIVERS.map(function(d) {
-    var bal = overtimeBalance[d] || 0;
-    if(bal === 0) return '';
-    hasData = true;
-    var isOT = bal > 0;
-    var h = Math.floor(Math.abs(bal)/60);
-    var m = Math.abs(bal) % 60;
-    var label = isOT ? 'OT Credit' : 'Undertime';
-    var color = isOT ? '#059669' : '#DC2626';
-    var bg    = isOT ? '#D1FAE5' : '#FEE2E2';
-    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:' + bg + ';border-radius:6px;margin-bottom:5px">' +
-      '<span style="font-size:13px;font-weight:600">' + d + '</span>' +
-      '<div style="text-align:right">' +
-        '<div style="font-size:12px;font-weight:700;color:' + color + '">' + (isOT?'+':'−') + (h?h+'h ':'') + m + 'm ' + label + '</div>' +
-        (isOT ? '<button onclick="useOTCredit(\'' + d + '\',true)" style="font-size:10px;border:none;background:' + color + ';color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer;margin-top:2px">Apply Undertime</button>' : '') +
-        '<button onclick="useOTCredit(\'' + d + '\',false)" style="font-size:10px;border:none;background:#64748B;color:#fff;padding:2px 6px;border-radius:4px;cursor:pointer;margin-top:2px;margin-left:3px">Clear</button>' +
-      '</div>' +
-    '</div>';
-  }).join('');
-  el.innerHTML = '';
-  if(!hasData) el.innerHTML = '<div class="empty" style="font-size:12px">No overtime/undertime recorded</div>';
-  else el.innerHTML = html;
-}
-
-function useOTCredit(driver, apply) {
-  if(!confirm('Update ' + driver + ' balance?')) return;
-  overtimeBalance[driver] = 0;
-  try { localStorage.setItem('hmart_overtime_balance', JSON.stringify(overtimeBalance)); } catch(e) {}
-  renderOvertimeList();
-  toast('toast-att', driver + ' balance updated', true);
 }
 
 function calcHours(start, end) {
@@ -4654,7 +4673,6 @@ function loadAttendance() {
       actualClockouts = ac ? JSON.parse(ac) : {};
     } catch(e) { actualBreaks = {}; actualClockouts = {}; }
   }
-  renderOvertimeList();
 
   var isToday = (selDate === new Date().toISOString().slice(0,10));
   var now = new Date();
@@ -4663,48 +4681,87 @@ function loadAttendance() {
   var html = DRIVERS.map(function(d) {
     var sc = getDriverSched(d);
     var isDayOff = !!(sc.dayOff);
-    var actualB = actualBreaks[d] || null;
+    var actualB  = actualBreaks[d]    || null;
     var actualCO = actualClockouts[d] || null;
-    var bStart = actualB || sc.breakStart;
-    var bMins = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
+    var bStart   = actualB || sc.breakStart;
+    var bMins    = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
 
-    var onBreak = !isDayOff && isToday && bMins > -1 && nowMins >= bMins && nowMins < bMins + 60;
-    var schedBMins = sc.breakStart ? parseInt(sc.breakStart.split(':')[0])*60+parseInt(sc.breakStart.split(':')[1]) : -1;
+    // Scheduled clockout mins
+    var schedCOMins = sc.clockout ? parseInt(sc.clockout.split(':')[0])*60+parseInt(sc.clockout.split(':')[1]) : -1;
+    // Actual clockout mins
+    var actCOMins = actualCO ? parseInt(actualCO.split(':')[0])*60+parseInt(actualCO.split(':')[1]) : -1;
+
+    var onBreak     = !isDayOff && isToday && bMins > -1 && nowMins >= bMins && nowMins < bMins + 60;
+    var schedBMins  = sc.breakStart ? parseInt(sc.breakStart.split(':')[0])*60+parseInt(sc.breakStart.split(':')[1]) : -1;
     var breakOverdue = !isDayOff && isToday && !actualB && schedBMins > -1 && nowMins > schedBMins + 30;
-    var clocked_out = !isDayOff && isToday && actualCO && (function() {
-      var coMins = parseInt(actualCO.split(':')[0])*60+parseInt(actualCO.split(':')[1]);
-      return nowMins >= coMins;
-    })();
 
-    var statusColor, statusText;
+    // Clocked out: actual CO recorded AND current time >= it, OR scheduled CO passed
+    var clocked_out = !isDayOff && isToday && (
+      (actCOMins > -1 && nowMins >= actCOMins) ||
+      (schedCOMins > -1 && nowMins >= schedCOMins)
+    );
+    var clockedOutTime = actualCO || sc.clockout || '';
+
+    // Status
+    var status, cardBg, cardBorder, badgeBg, badgeColor;
     if(isDayOff) {
-      statusColor = '#DC2626'; statusText = '🏖 Day Off';
+      status = '🏖 Day Off';
+      cardBg = '#FFF5F5'; cardBorder = '#FECACA'; badgeBg = '#DC2626'; badgeColor = '#fff';
     } else if(!isToday) {
-      statusColor = '#64748B'; statusText = '📅 ' + selDate;
+      status = '📅 ' + selDate;
+      cardBg = '#F8FAFC'; cardBorder = '#E2E8F0'; badgeBg = '#64748B'; badgeColor = '#fff';
     } else if(clocked_out) {
-      statusColor = '#374151'; statusText = '🔴 Clocked Out';
+      status = '🏠 Clocked Out ' + clockedOutTime;
+      cardBg = '#F1F5F9'; cardBorder = '#CBD5E1'; badgeBg = '#475569'; badgeColor = '#fff';
     } else if(onBreak) {
-      statusColor = '#F59E0B'; statusText = '☕ On Break';
+      status = '☕ On Break';
+      cardBg = '#FFFBEB'; cardBorder = '#FDE68A'; badgeBg = '#F59E0B'; badgeColor = '#fff';
     } else {
-      statusColor = '#059669'; statusText = '✓ Available';
+      status = '✓ Available';
+      cardBg = '#F0FDF4'; cardBorder = '#86EFAC'; badgeBg = '#059669'; badgeColor = '#fff';
     }
 
-    return '<div style="background:' + (isDayOff?'#FFF5F5':'#fff') + ';border:1px solid ' + (isDayOff?'#FECACA':'#E2E8F0') + ';border-radius:8px;padding:12px;margin-bottom:8px;border-left:4px solid ' + statusColor + (isDayOff?';opacity:0.85':'') + '">' +
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">' +
-        '<div style="font-size:14px;font-weight:700">' + d + '</div>' +
-        '<span style="background:' + statusColor + ';color:#fff;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px">' + statusText + '</span>' +
+    // Shift bar: visual block showing on-duty hours
+    var shiftBar = '';
+    if(!isDayOff && sc.clockin && sc.clockout) {
+      var ciM  = parseInt(sc.clockin.split(':')[0])*60  + parseInt(sc.clockin.split(':')[1]);
+      var coM  = parseInt(sc.clockout.split(':')[0])*60 + parseInt(sc.clockout.split(':')[1]);
+      var total = coM - ciM;
+      if(total > 0 && isToday) {
+        var progress = Math.min(100, Math.max(0, ((nowMins - ciM) / total) * 100));
+        var barColor = clocked_out ? '#94A3B8' : '#059669';
+        shiftBar = '<div style="margin-top:8px">' +
+          '<div style="display:flex;justify-content:space-between;font-size:10px;color:#94A3B8;margin-bottom:3px">' +
+            '<span>' + sc.clockin + '</span>' +
+            (bStart ? '<span>☕ ' + bStart + '</span>' : '') +
+            '<span>' + sc.clockout + '</span>' +
+          '</div>' +
+          '<div style="height:6px;background:#E2E8F0;border-radius:3px;overflow:hidden">' +
+            '<div style="height:100%;width:' + Math.round(progress) + '%;background:' + barColor + ';border-radius:3px;transition:width 0.5s"></div>' +
+          '</div>' +
+          '<div style="font-size:10px;color:#94A3B8;margin-top:2px;text-align:right">' +
+            calcHours(sc.clockin, sc.clockout) + ' shift' +
+          '</div>' +
+        '</div>';
+      }
+    }
+
+    return '<div style="background:' + cardBg + ';border:1px solid ' + cardBorder + ';border-radius:10px;padding:12px;margin-bottom:8px;' + (isDayOff?'opacity:0.75':'') + (clocked_out?';opacity:0.8':'') + '">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">' +
+        '<div style="font-size:15px;font-weight:700;color:' + (clocked_out?'#64748B':'#1F2937') + '">' + d + '</div>' +
+        '<span style="background:' + badgeBg + ';color:' + badgeColor + ';font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap">' + status + '</span>' +
       '</div>' +
       (isDayOff ?
-        '<div style="font-size:12px;color:#DC2626;font-style:italic">' + (sc.notes ? sc.notes : 'Day off — not scheduled today') + '</div>' :
-        '<div style="display:flex;gap:12px;font-size:12px;color:#374151;flex-wrap:wrap">' +
-          (sc.clockin  ? '<span>🟢 In: <strong>' + sc.clockin + '</strong></span>' : '') +
-          (bStart ? '<span>' + (actualB ? '☕ Actual Break: ' : '☕ Sched Break: ') + '<strong>' + bStart + '</strong></span>' : '<span style="color:#94A3B8">No break set</span>') +
-          (sc.clockout ? '<span>🔴 Sched Out: <strong>' + sc.clockout + '</strong></span>' : '') +
-          (actualCO ? '<span style="color:#DC2626;font-weight:700">Actual Out: ' + actualCO + '</span>' : '') +
-          (sc.clockin && sc.clockout ? '<span style="color:#1F4E79;font-weight:600">Est: ' + calcHours(sc.clockin, sc.clockout) + '</span>' : '') +
+        '<div style="font-size:12px;color:#DC2626;font-style:italic">' + (sc.notes || 'Day off — not scheduled') + '</div>' :
+        '<div style="display:flex;gap:10px;font-size:12px;flex-wrap:wrap;color:#374151">' +
+          (sc.clockin  ? '<span style="' + (clocked_out?'color:#94A3B8':'') + '">🟢 <strong>' + sc.clockin + '</strong></span>' : '') +
+          (bStart      ? '<span style="' + (clocked_out?'color:#94A3B8':'') + '">☕ ' + (actualB?'<strong>':'') + bStart + (actualB?'</strong>':'') + '</span>' : '') +
+          (sc.clockout ? '<span style="color:' + (clocked_out?'#475569':'#64748B') + '">🔴 <strong>' + sc.clockout + '</strong></span>' : '') +
+          (actualCO && actualCO !== sc.clockout ? '<span style="color:#1F4E79;font-weight:700">Actual out: ' + actualCO + '</span>' : '') +
         '</div>'
       ) +
-      (!isDayOff && breakOverdue ? '<div style="background:#FEE2E2;border-radius:5px;padding:5px 8px;font-size:11px;color:#DC2626;font-weight:600;margin-top:6px">⚠ Break time passed — actual break not yet recorded</div>' : '') +
+      shiftBar +
+      (!isDayOff && breakOverdue ? '<div style="background:#FEE2E2;border-radius:5px;padding:5px 8px;font-size:11px;color:#DC2626;font-weight:600;margin-top:6px">⚠ Break time passed — not yet recorded</div>' : '') +
       (!isDayOff && sc.notes ? '<div style="font-size:11px;color:#92400E;background:#FEF3C7;padding:4px 8px;border-radius:4px;margin-top:6px">' + sc.notes + '</div>' : '') +
     '</div>';
   }).join('');
