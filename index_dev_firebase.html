@@ -1023,7 +1023,6 @@ function showNetworkStatus(msg, color) {
     <div class="off-nav">
       <button class="nav-btn active" onclick="switchTab('orders')">Orders</button>
       <button class="nav-btn" onclick="switchTab('live')">Live Status</button>
-      <button class="nav-btn" onclick="switchTab('performance')">Performance</button>
       <button class="nav-btn" onclick="switchTab('vehicles')">Vehicles</button>
       <button class="nav-btn" onclick="switchTab('attendance')">Attendance</button>
       <button class="nav-btn" onclick="switchTab('checklist')">Checklist</button>
@@ -1116,6 +1115,85 @@ function showNetworkStatus(msg, color) {
         </div>
       </div>
       <div id="live-list"><div class="empty">Loading...</div></div>
+    </div>
+
+    <!-- REPORTS TAB -->
+    <div id="tab-reports" class="off-screen">
+      <div id="toast-rep" class="toast"></div>
+
+      <!-- Date range selector -->
+      <div class="off-card" style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div style="display:flex;gap:6px">
+            <button onclick="setRptRange('today')"   id="rbt-today"   class="rbt active-rbt">Today</button>
+            <button onclick="setRptRange('week')"    id="rbt-week"    class="rbt">This Week</button>
+            <button onclick="setRptRange('month')"   id="rbt-month"   class="rbt">This Month</button>
+            <button onclick="setRptRange('custom')"  id="rbt-custom"  class="rbt">Custom</button>
+          </div>
+          <div id="rpt-custom-dates" style="display:none;display:flex;gap:6px;align-items:center">
+            <input type="date" id="rpt-start" style="padding:5px 8px;border:1px solid #D1D5DB;border-radius:6px;font-size:12px">
+            <span style="font-size:12px;color:#64748B">to</span>
+            <input type="date" id="rpt-end"   style="padding:5px 8px;border:1px solid #D1D5DB;border-radius:6px;font-size:12px">
+          </div>
+          <div style="margin-left:auto;display:flex;gap:8px">
+            <button onclick="loadReports()" class="btn-blue-off">Load</button>
+            <button onclick="printReports()" class="btn-sm-off">🖨 Print</button>
+            <button onclick="exportExcel()" class="btn-sm-off">📥 Excel</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="rpt-loading" class="empty" style="display:none;padding:40px">
+        <div style="font-size:32px;animation:spin 1s linear infinite;display:inline-block">⟳</div>
+        <div style="margin-top:8px;font-size:13px;color:#64748B">Loading report...</div>
+      </div>
+
+      <div id="rpt-content" style="display:none">
+        <!-- KPI Cards -->
+        <div id="rpt-kpi" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px"></div>
+
+        <!-- Charts row -->
+        <div style="display:grid;grid-template-columns:1fr 340px;gap:16px;margin-bottom:20px">
+          <!-- Daily revenue bar chart -->
+          <div class="off-card" id="rpt-chart-revenue">
+            <div style="font-size:13px;font-weight:700;color:#1F4E79;margin-bottom:12px">Daily Revenue</div>
+            <div id="rpt-chart-canvas"></div>
+          </div>
+          <!-- Payment breakdown donut -->
+          <div class="off-card" id="rpt-chart-pay">
+            <div style="font-size:13px;font-weight:700;color:#1F4E79;margin-bottom:12px">Payment Breakdown</div>
+            <div id="rpt-donut"></div>
+          </div>
+        </div>
+
+        <!-- Driver ranking -->
+        <div class="off-card" style="margin-bottom:16px" id="rpt-drivers">
+          <div style="font-size:13px;font-weight:700;color:#1F4E79;margin-bottom:12px">Driver Ranking</div>
+          <div id="rpt-driver-table"></div>
+        </div>
+
+        <!-- Vehicle summary -->
+        <div class="off-card" style="margin-bottom:16px">
+          <div style="font-size:13px;font-weight:700;color:#1F4E79;margin-bottom:12px">Vehicle Summary</div>
+          <div id="rpt-vehicle-table"></div>
+        </div>
+
+        <!-- Print-only full detail -->
+        <div id="rpt-print-area" style="display:none">
+          <div id="rpt-print-body"></div>
+        </div>
+
+        <!-- Order detail table (collapsible) -->
+        <div class="off-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div style="font-size:13px;font-weight:700;color:#1F4E79">Order Details</div>
+            <button onclick="toggleRptOrders()" id="rpt-ord-toggle" style="font-size:12px;color:#64748B;background:none;border:none;cursor:pointer">Show ▾</button>
+          </div>
+          <div id="rpt-order-table" style="display:none"></div>
+        </div>
+      </div>
+
+      <div id="rpt-empty" class="empty" style="display:none">No data found for this period</div>
     </div>
 
     <div id="tab-vehicles" class="off-screen">
@@ -1259,6 +1337,7 @@ function showNetworkStatus(msg, color) {
         <button class="admin-nav-btn active" onclick="switchAdmin('drivers')">Drivers</button>
         <button class="admin-nav-btn" onclick="switchAdmin('vehicles')">Vehicles</button>
         <button class="admin-nav-btn" onclick="switchAdmin('report')">Daily Report</button>
+        <button class="admin-nav-btn" onclick="switchAdmin('performance')">Performance</button>
         <button class="admin-nav-btn" onclick="switchAdmin('general')">General</button>
       </div>
       <div id="admin-drivers" class="admin-screen active">
@@ -1313,6 +1392,28 @@ function showNetworkStatus(msg, color) {
         <div id="report-empty" class="empty" style="display:none">No data found for this date range</div>
         <div id="report-loading" class="empty" style="display:none">Loading...</div>
       </div>
+      <div id="admin-performance" class="admin-screen">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+          <div>
+            <div style="font-size:15px;font-weight:700;color:#1F4E79">Driver Performance</div>
+            <div style="font-size:12px;color:#64748B">Admin view only</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="perf-range" onchange="loadPerformance()" style="padding:6px 10px;border:1px solid #D1D5DB;border-radius:6px;font-size:12px">
+              <option value="today">Today</option>
+              <option value="week">This Week</option>
+              <option value="month">This Month</option>
+            </select>
+            <button class="btn-sm-off" onclick="loadPerformance()">Refresh</button>
+          </div>
+        </div>
+        <div id="perf-summary" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px"></div>
+        <div id="perf-flags" style="margin-bottom:16px"></div>
+        <div id="perf-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
+          <div class="empty">Open Performance tab to load data</div>
+        </div>
+      </div>
+
       <div id="admin-general" class="admin-screen">
         <div class="admin-card">
           <div class="admin-title">Store Settings</div>
@@ -2367,7 +2468,7 @@ async function completeDel(orderId) {
   try {
     var r = await apiPost('completeOrder', { orderId: orderId, change: '' });
     loadOverlay.remove();
-    if(r && r.success) { activeDelId = null; toast('drv-toast', 'Delivered! ✓', true); drvLoadData(); }
+    if(r && r.success) { activeDelId = null; playSound('complete'); toast('drv-toast', 'Delivered! ✓', true); drvLoadData(); }
     else { toast('drv-toast', 'Error completing delivery', false); }
   } catch(e) { loadOverlay.remove(); toast('drv-toast', 'Error: ' + e.message, false); }
 }
@@ -2435,26 +2536,58 @@ async function drvDepart() {
 async function drvArrive() {
   var arrKm   = document.getElementById('drv-arrkm').value;
   var remarks = document.getElementById('drv-remarks').value;
-  if(!arrKm) { toast('drv-toast', 'Please enter arrival KM', false); return; }
+  if(!arrKm) { toast('drv-toast', 'Please enter arrival KM', false); playSound('error'); return; }
+
+  // Get current run's dep KM to validate
+  var activeRun = (drvRuns || []).find(function(r) {
+    return r.driver === curDriver && r.status === 'IN PROGRESS';
+  });
+  if(activeRun && activeRun.depKm) {
+    var dep = parseFloat(activeRun.depKm);
+    var arr = parseFloat(arrKm);
+    if(arr < dep) {
+      playSound('error');
+      toast('drv-toast', '⚠ Arrival KM (' + arr + ') is less than Departure KM (' + dep + ')! Please check.', false);
+      // Highlight the field red
+      var el = document.getElementById('drv-arrkm');
+      if(el) { el.style.border = '2px solid #DC2626'; el.style.background = '#FEF2F2'; }
+      return;
+    }
+    if(arr === dep) {
+      if(!confirm('Arrival KM is the same as Departure KM (' + dep + ').\nDistance will be 0 km. Continue?')) return;
+    }
+    // Reset field style if OK
+    var el2 = document.getElementById('drv-arrkm');
+    if(el2) { el2.style.border = ''; el2.style.background = ''; }
+  }
+
   var btn = document.querySelector('#drv-arrival .btn-arrive');
   btn.textContent = 'Saving...'; btn.disabled = true;
   try {
     var r = await apiPost('submitArrival', { driver: curDriver, arrKm: parseFloat(arrKm), remarks: remarks });
     btn.textContent = 'Complete Run'; btn.disabled = false;
-    if(r && r.success) { toast('drv-toast', 'Run completed! +' + r.distance + ' km', true); setTimeout(drvLoadData, 1500); }
-    else toast('drv-toast', (r && r.message) || 'Error', false);
+    if(r && r.success) {
+      playSound('success');
+      toast('drv-toast', 'Run completed! +' + r.distance + ' km', true);
+      setTimeout(drvLoadData, 1500);
+    } else {
+      playSound('error');
+      toast('drv-toast', (r && r.message) || 'Error', false);
+    }
   } catch(e) { btn.textContent = 'Complete Run'; btn.disabled = false; toast('drv-toast', 'Error: ' + e.message, false); }
 }
 
 // ---- LIVE STATUS ----
 function switchTab(t) {
-  var tabs = ['orders','live','performance','vehicles','attendance','checklist','fuel'];
+  var tabs = ['orders','live','vehicles','attendance','checklist','fuel'];
   document.querySelectorAll('.nav-btn').forEach(function(b, i) { b.classList.toggle('active', tabs[i] === t); });
   document.querySelectorAll('.off-screen').forEach(function(s) { s.classList.remove('active'); });
-  document.getElementById('tab-' + t).classList.add('active');
+  var tabEl = document.getElementById('tab-' + t);
+  if(tabEl) tabEl.classList.add('active');
   if(t === 'orders') loadOrders();
   else if(t === 'live') loadLive();
   else if(t === 'performance') loadPerformance();
+  else if(t === 'reports') loadReports();
   else if(t === 'vehicles') loadVehicles();
   else if(t === 'attendance') { loadAttendance(); buildAttDriverTable(); }
   else if(t === 'fuel') loadFuel();
@@ -2641,7 +2774,84 @@ async function loadLive() {
   if(refreshBtn) { refreshBtn.textContent = 'Refresh'; refreshBtn.disabled = false; }
 }
 
-// ---- PERFORMANCE DASHBOARD ----
+// ---- SOUND SYSTEM ----
+var _audioCtx = null;
+function getAudioCtx() {
+  if(!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return _audioCtx;
+}
+
+function playSound(type) {
+  try {
+    var ctx = getAudioCtx();
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    if(type === 'tap') {
+      // Short soft click
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.05);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.08);
+    } else if(type === 'success') {
+      // Two-tone success
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(523, ctx.currentTime);         // C5
+      osc.frequency.setValueAtTime(784, ctx.currentTime + 0.12); // G5
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.3);
+    } else if(type === 'error') {
+      // Low error buzz
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(220, ctx.currentTime);
+      osc.frequency.setValueAtTime(180, ctx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.25);
+    } else if(type === 'depart') {
+      // Upward chime — departure!
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440, ctx.currentTime);
+      osc.frequency.setValueAtTime(550, ctx.currentTime + 0.1);
+      osc.frequency.setValueAtTime(660, ctx.currentTime + 0.2);
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.4);
+    } else if(type === 'complete') {
+      // Three-tone complete
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(523, ctx.currentTime);
+      osc.frequency.setValueAtTime(659, ctx.currentTime + 0.1);
+      osc.frequency.setValueAtTime(784, ctx.currentTime + 0.2);
+      gain.gain.setValueAtTime(0.25, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.5);
+    }
+  } catch(e) { /* Audio not supported — silent fallback */ }
+}
+
+// Add tap sound to all major buttons on driver screen
+function initSounds() {
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('button, .order-card-btn, .btn-arrive, .btn-depart, .btn-deliver');
+    if(!btn) return;
+    // Don't play tap for action buttons that have their own sounds
+    if(btn.classList.contains('btn-arrive') || btn.classList.contains('btn-depart') ||
+       btn.classList.contains('btn-deliver') || btn.onclick && btn.onclick.toString().indexOf('drvArrive') > -1) return;
+    playSound('tap');
+  });
+}
+initSounds();
 async function loadPerformance() {
   var grid    = document.getElementById('perf-grid');
   var summary = document.getElementById('perf-summary');
@@ -3031,7 +3241,7 @@ function checkPin() {
 }
 
 function switchAdmin(t) {
-  var tabs=['drivers','vehicles','report','general'];
+  var tabs=['drivers','vehicles','report','performance','general'];
   document.querySelectorAll('.admin-nav-btn').forEach(function(b,i){b.classList.toggle('active',tabs[i]===t);});
   document.querySelectorAll('.admin-screen').forEach(function(s){s.classList.remove('active');});
   document.getElementById('admin-'+t).classList.add('active');
@@ -3042,6 +3252,7 @@ function switchAdmin(t) {
     if(ds&&!ds.value) ds.value=today;
     if(de&&!de.value) de.value=today;
   }
+  if(t==='performance') loadPerformance();
 }
 
 async function loadAdminData() {
