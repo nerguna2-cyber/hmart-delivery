@@ -1336,10 +1336,14 @@ function showNetworkStatus(msg, color) {
         <div>
           <div class="off-card">
             <div class="card-title">Driver Schedules</div>
-            <div style="font-size:12px;color:#64748B;margin-bottom:10px">Set each driver's Clock In and Break Start.</div>
+            <div style="font-size:12px;color:#64748B;margin-bottom:10px">
+              Clock In 입력 후 <kbd style="background:#F1F5F9;border:1px solid #D1D5DB;border-radius:3px;padding:1px 5px;font-size:11px">Tab</kbd> → 다음 드라이버로 이동. 
+              Break/Clock Out은 자동 계산됩니다.
+            </div>
             <div id="att-driver-table"><div class="empty">Loading...</div></div>
-            <div style="display:flex;gap:8px;margin-top:10px">
-              <button class="btn-primary-off" style="flex:1" onclick="saveAllOverrides()">Save All Schedules</button>
+            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+              <button class="btn-primary-off" style="flex:2" onclick="saveAllOverrides()">💾 Save All Schedules</button>
+              <button onclick="resetAllSchedules()" style="flex:1;padding:10px;font-size:13px;font-weight:600;background:#FEE2E2;color:#DC2626;border:1px solid #FCA5A5;border-radius:8px;cursor:pointer">🗑 Reset</button>
               <button onclick="printAttendance()" style="flex:1;padding:10px;font-size:13px;font-weight:600;background:#374151;color:#fff;border:none;border-radius:8px;cursor:pointer">🖨 Print</button>
             </div>
           </div>
@@ -3588,31 +3592,57 @@ async function loadLive() {
 
     // ── DRIVER STATUS ──
     html += '<div class="section-label">Driver Status Today</div>';
-    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px">';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:8px">';
     var activeDrivers = active.map(function(r) { return r.driver; });
     var nowMins = new Date().getHours()*60 + new Date().getMinutes();
     DRIVERS.forEach(function(d) {
-      var onRoad = activeDrivers.indexOf(d) > -1;
-      var sched = (typeof getDriverSched === 'function') ? getDriverSched(d) : { breakStart:'12:00' };
-      var isDayOff = !!(sched.dayOff);
-      var actualB = actualBreaks[d] || null;
-      var bStart = actualB || sched.breakStart;
-      var bsMins = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
-      var onBreak = !onRoad && !isDayOff && bsMins > -1 && nowMins >= bsMins && nowMins < bsMins + 60;
-      var statusColor = isDayOff ? '#DC2626' : onRoad ? '#1D4ED8' : onBreak ? '#F59E0B' : '#059669';
-      var statusText  = isDayOff ? '🏖 Day Off' : onRoad ? '🚚 On Road' : onBreak ? '☕ On Break' : '✓ Available';
-      var activeRun   = onRoad ? active.find(function(r) { return r.driver === d; }) : null;
+      var onRoad    = activeDrivers.indexOf(d) > -1;
+      var sched     = (typeof getDriverSched === 'function') ? getDriverSched(d) : {};
+      var isDayOff  = !!(sched.dayOff);
+      var actualB   = actualBreaks[d]    || null;
+      var actualCO  = actualClockouts[d] || null;
+      var bStart    = actualB || sched.breakStart;
+      var bsMins    = bStart ? parseInt(bStart.split(':')[0])*60+parseInt(bStart.split(':')[1]) : -1;
+      var coutTime  = actualCO || sched.clockout || '';
+      var coutMins  = coutTime ? parseInt(coutTime.split(':')[0])*60+parseInt(coutTime.split(':')[1]) : -1;
+      var clockedOut = !onRoad && !isDayOff && coutMins > -1 && nowMins >= coutMins;
+      var onBreak   = !onRoad && !isDayOff && !clockedOut && bsMins > -1 && nowMins >= bsMins && nowMins < bsMins + 60;
+      var activeRun = onRoad ? active.find(function(r) { return r.driver === d; }) : null;
       var asCoDriver = !isDayOff && active.find(function(r) { return r.coDriver === d; });
-      if(!onRoad && asCoDriver) {
-        onRoad = true; statusColor = '#7C3AED'; statusText = '🚗 Co-Driver';
+      if(!onRoad && asCoDriver) { onRoad = true; }
+
+      // Color scheme
+      var bg, textColor, statusText, borderColor;
+      if(isDayOff) {
+        bg='#FEE2E2'; textColor='#991B1B'; statusText='🏖 Day Off'; borderColor='#FECACA';
+      } else if(clockedOut) {
+        bg='#F1F5F9'; textColor='#64748B'; statusText='🏠 Off duty'; borderColor='#CBD5E1';
+      } else if(onRoad && asCoDriver) {
+        bg='#F5F3FF'; textColor='#5B21B6'; statusText='🚗 Co-Driver'; borderColor='#C4B5FD';
+      } else if(onRoad) {
+        bg='#EFF6FF'; textColor='#1E40AF'; statusText='🚚 On Road'; borderColor='#93C5FD';
+      } else if(onBreak) {
+        bg='#FFFBEB'; textColor='#92400E'; statusText='☕ On Break'; borderColor='#FDE68A';
+      } else {
+        bg='#F0FDF4'; textColor='#166534'; statusText='✓ Available'; borderColor='#86EFAC';
       }
-      html += '<div style="background:' + statusColor + ';border-radius:8px;padding:10px 12px">' +
-        '<div style="font-size:13px;font-weight:700;color:#fff">' + d + '</div>' +
-        '<div style="font-size:12px;color:#fff;opacity:0.9;margin-top:3px">' + statusText + '</div>' +
-        (onRoad && activeRun ? '<div style="font-size:10px;color:#fff;opacity:0.8;margin-top:2px">📍 ' + (activeRun.destination || 'Delivering') + '</div>' : '') +
-        (onRoad && activeRun && activeRun.coDriver ? '<div style="font-size:10px;color:#fff;opacity:0.8;margin-top:2px">👥 w/ ' + activeRun.coDriver + '</div>' : '') +
-        (onRoad && asCoDriver ? '<div style="font-size:10px;color:#fff;opacity:0.8;margin-top:2px">📍 ' + (asCoDriver.destination||'') + ' (w/ ' + asCoDriver.driver + ')</div>' : '') +
-        (onBreak ? '<div style="font-size:10px;color:#fff;opacity:0.8;margin-top:2px">Break: ' + (bStart||'') + '</div>' : '') +
+
+      html += '<div style="background:' + bg + ';border:1.5px solid ' + borderColor + ';border-radius:10px;padding:10px 12px;' + (clockedOut?'opacity:0.7':'') + '">' +
+        // Name + status badge
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:4px;margin-bottom:5px">' +
+          '<div style="font-size:14px;font-weight:700;color:' + (clockedOut?'#64748B':'#1F2937') + '">' + d + '</div>' +
+          '<span style="font-size:10px;font-weight:700;color:' + textColor + ';white-space:nowrap">' + statusText + '</span>' +
+        '</div>' +
+        // Shift times row
+        (!isDayOff && (sched.clockin || sched.clockout) ?
+          '<div style="display:flex;gap:6px;font-size:11px;color:#64748B;flex-wrap:wrap">' +
+            (sched.clockin  ? '<span style="color:' + (clockedOut?'#94A3B8':'#059669') + ';font-weight:600">▶ ' + sched.clockin + '</span>' : '') +
+            (sched.clockout ? '<span style="color:' + (clockedOut?'#475569':'#DC2626') + ';font-weight:600">■ ' + coutTime + '</span>' : '') +
+          '</div>' : '') +
+        // Run / break details
+        (onRoad && activeRun && !asCoDriver ? '<div style="font-size:10px;color:' + textColor + ';margin-top:4px;opacity:0.85">📍 ' + (activeRun.destination||'Delivering').replace('🚨 ','') + '</div>' : '') +
+        (onRoad && asCoDriver ? '<div style="font-size:10px;color:' + textColor + ';margin-top:4px;opacity:0.85">w/ ' + asCoDriver.driver + '</div>' : '') +
+        (onBreak ? '<div style="font-size:10px;color:' + textColor + ';margin-top:4px;font-weight:600">Break: ' + bStart + '</div>' : '') +
       '</div>';
     });
     html += '</div>';
@@ -4569,12 +4599,18 @@ function buildAttDriverTable() {
       '<th style="padding:6px 10px;text-align:center;border:1px solid #E2E8F0;font-weight:600;background:#FEE2E2;min-width:70px">Day Off</th>' +
       '<th style="padding:6px 10px;text-align:left;border:1px solid #E2E8F0;font-weight:600;min-width:120px">Notes</th>' +
     '</tr></thead><tbody>' +
-    DRIVERS.map(function(d) {
+    DRIVERS.map(function(d, idx) {
       var sc = getDriverSched(d);
       var isDayOff = !!(sc.dayOff);
+      // Tab from last driver's clockin goes to Save button
+      var nextDriver = DRIVERS[idx + 1];
+      var tabTarget = nextDriver ? 'sc-ci-' + nextDriver : 'att-save-btn';
       return '<tr style="' + (isDayOff ? 'background:#FFF5F5;opacity:0.8' : '') + '">' +
         '<td style="padding:6px 10px;border:1px solid #E2E8F0;font-weight:600;white-space:nowrap">' + d + '</td>' +
-        '<td style="padding:4px 6px;border:1px solid #E2E8F0"><input type="time" id="sc-ci-' + d + '" value="' + (sc.clockin||'') + '" ' + (isDayOff?'disabled':'') + ' onchange="autoFillSchedule(\'' + d + '\')" style="width:100%;border:1px solid #E2E8F0;border-radius:5px;font-size:13px;text-align:center;padding:5px;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
+        '<td style="padding:4px 6px;border:1px solid #E2E8F0"><input type="time" id="sc-ci-' + d + '" value="' + (sc.clockin||'') + '" ' + (isDayOff?'disabled':'') +
+          ' onchange="autoFillSchedule(\'' + d + '\')"' +
+          ' onkeydown="if(event.key===\'Tab\'){event.preventDefault();var nx=document.getElementById(\'' + tabTarget + '\');if(nx){nx.focus();}}"' +
+          ' style="width:100%;border:1.5px solid #93C5FD;border-radius:5px;font-size:13px;text-align:center;padding:5px;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
         '<td style="padding:4px 6px;border:1px solid #E2E8F0;background:#FFFBEB"><input type="time" id="sc-bs-' + d + '" value="' + (sc.breakStart||'') + '" ' + (isDayOff?'disabled':'') + ' style="width:100%;border:1px solid #FDE68A;border-radius:5px;font-size:13px;text-align:center;padding:5px;background:transparent;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
         '<td style="padding:4px 6px;border:1px solid #E2E8F0"><input type="time" id="sc-co-' + d + '" value="' + (sc.clockout||'') + '" ' + (isDayOff?'disabled':'') + ' style="width:100%;border:1px solid #E2E8F0;border-radius:5px;font-size:13px;text-align:center;padding:5px;' + (isDayOff?'opacity:0.4':'') + '"></td>' +
         '<td style="padding:4px 6px;border:1px solid #E2E8F0;background:#FFF5F5;text-align:center"><input type="checkbox" id="sc-do-' + d + '" ' + (isDayOff?'checked':'') + ' onchange="toggleDayOff(\'' + d + '\')" style="width:18px;height:18px;cursor:pointer"></td>' +
@@ -4582,11 +4618,31 @@ function buildAttDriverTable() {
       '</tr>';
     }).join('') +
     '</tbody></table></div>';
+  // Add id to Save button for Tab focus
+  setTimeout(function() {
+    var saveBtn = document.querySelector('[onclick="saveAllOverrides()"]');
+    if(saveBtn && !saveBtn.id) saveBtn.id = 'att-save-btn';
+  }, 100);
   var sel = document.getElementById('att-break-driver');
   if(sel) {
     sel.innerHTML = '<option value="">-- Select --</option>' +
       DRIVERS.map(function(d) { return '<option>' + d + '</option>'; }).join('');
   }
+}
+
+function resetAllSchedules() {
+  if(!confirm('모든 드라이버 스케줄을 초기화하시겠어요?\n(시간이 모두 지워집니다)')) return;
+  DRIVERS.forEach(function(d) {
+    driverSchedules[d] = { clockin:'', breakStart:'', clockout:'', notes:'', dayOff:false };
+  });
+  try { localStorage.setItem('hmart_driver_schedules', JSON.stringify(driverSchedules)); } catch(e) {}
+  buildAttDriverTable();
+  toast('toast-att', 'All schedules cleared', true);
+  // Focus first driver's clockin
+  setTimeout(function() {
+    var first = document.getElementById('sc-ci-' + DRIVERS[0]);
+    if(first) first.focus();
+  }, 200);
 }
 
 function toggleDayOff(driver) {
