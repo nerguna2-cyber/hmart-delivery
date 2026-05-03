@@ -598,6 +598,14 @@ async function apiPost(action, data, _bypassQueue) {
 
     // ── submitDeparture ────────────────────────────────────
     if(action === 'submitDeparture') {
+      // Validate vehicle is not Under Repair
+      if(data.plate) {
+        var vKey0 = data.plate.replace(/\s/g,'_');
+        var vehCheck = await dbGet('hmart/vehicles/' + vKey0);
+        if(vehCheck && vehCheck.status && vehCheck.status !== 'Active' && vehCheck.status !== 'Standby') {
+          return { success: false, message: 'Vehicle ' + data.plate + ' is ' + vehCheck.status + ' and cannot be used.' };
+        }
+      }
       var runKey = 'RUN-' + newId();
       await dbSet('hmart/runs/' + runKey, {
         date: today, depTime: now,
@@ -1880,6 +1888,7 @@ async function saveAllOrders() {
       toast('toast-ord', r.count + ' order(s) saved!', true);
       document.getElementById('fast-rows').innerHTML = '';
       fastRowCount = 0; rowPayment = {};
+      addFastRow(); // auto-open a fresh form ready for next order
       loadOrders();
     } else toast('toast-ord', 'Error saving', false);
   } catch(e) { btn.textContent = 'Save All Orders'; btn.disabled = false; toast('toast-ord', 'Error: ' + e.message, false); }
@@ -2537,17 +2546,30 @@ async function drvLoadData() {
     // Use plate-only matching to prevent LITE ACE cross-matching
     var busyPlates = activeRuns.map(function(r) { return (r.plate||'').trim(); }).filter(Boolean);
 
+    // Also get vehicle statuses to block Under Repair / Unavailable
+    var repairPlates = [];
+    try {
+      var vehSnap = await window._fb.ref('hmart/vehicles').once('value');
+      var vehObj  = vehSnap.val() || {};
+      Object.values(vehObj).forEach(function(v) {
+        if(v.status && v.status !== 'Active' && v.status !== 'Standby') {
+          repairPlates.push((v.plate||'').trim());
+        }
+      });
+    } catch(e) {}
+
     function markBusyVehicles(selId) {
       var sel = document.getElementById(selId);
       if(!sel) return;
       Array.from(sel.options).forEach(function(opt) {
         if(!opt.value) return;
-        var optText  = opt.text.replace(' [IN USE]','');
-        var optPlate = ((optText.match(/\(([^)]+)\)/) || [])[1] || '').trim();
-        var isBusy   = optPlate && busyPlates.indexOf(optPlate) > -1;
-        opt.disabled    = isBusy;
-        opt.text        = optText + (isBusy ? ' [IN USE]' : '');
-        opt.style.color = isBusy ? '#DC2626' : '';
+        var optText   = opt.text.replace(' [IN USE]','').replace(' [REPAIR]','');
+        var optPlate  = ((optText.match(/\(([^)]+)\)/) || [])[1] || '').trim();
+        var isBusy    = optPlate && busyPlates.indexOf(optPlate) > -1;
+        var isRepair  = optPlate && repairPlates.indexOf(optPlate) > -1;
+        opt.disabled    = isBusy || isRepair;
+        opt.text        = optText + (isBusy ? ' [IN USE]' : isRepair ? ' [REPAIR]' : '');
+        opt.style.color = isBusy ? '#DC2626' : isRepair ? '#F59E0B' : '';
       });
     }
     markBusyVehicles('special-vehicle');
