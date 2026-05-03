@@ -875,6 +875,14 @@ async function apiPost(action, data, _bypassQueue) {
 
       await Promise.all(tasks);
 
+      // Clear today's break logs from Firebase
+      var breakObj = await dbGet('hmart/breakLogs') || {};
+      var breakTasks = [];
+      fb.objToArr(breakObj).forEach(function(b) {
+        if(b.date === today) breakTasks.push(dbRemove('hmart/breakLogs/' + b._fbKey));
+      });
+      if(breakTasks.length) await Promise.all(breakTasks);
+
       // Save archive metadata
       await dbSet('hmart/archive/' + today + '/meta', {
         date: today, resetTime: now, type: 'full-reset',
@@ -4522,6 +4530,14 @@ async function resetAllToday() {
     if(r && r.success) {
       toast('toast-admin', '✅ 리셋 완료! 오더 ' + r.ordersDeleted + '건, 런 ' + r.runsDeleted + '건 archive 저장', true);
       addResetLog('🔄 리셋 완료 — 오더 ' + r.ordersDeleted + '건 + 런 ' + r.runsDeleted + '건 archive 저장');
+      // Clear today's break logs from localStorage
+      var todayStr = new Date().toLocaleDateString('en-CA');
+      actualBreaks = {};
+      actualClockouts = {};
+      try {
+        localStorage.removeItem('hmart_actual_breaks_' + todayStr);
+        localStorage.removeItem('hmart_actual_dutyoffs_' + todayStr);
+      } catch(e2) {}
       var sc = document.getElementById('eod-summary-content');
       if(sc) sc.style.display = 'none';
       loadOrders();
