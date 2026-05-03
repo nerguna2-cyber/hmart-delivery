@@ -2264,24 +2264,23 @@ function buildOrderItemHTML(o, displayStatus) {
         '</div>';
       }
     } else {
-      // PENDING: amount row if no amount, reassign dropdown, actions
-      if(!hasAmount) {
-        html += '<div style="background:#FFFBF0;border:1px solid #FDE68A;border-radius:7px;padding:8px;margin-top:8px">' +
-          '<div style="display:flex;gap:6px;align-items:center">' +
-            '<input type="number" id="amt-' + o.orderId + '" placeholder="Bill amount P" inputmode="numeric" style="flex:2;padding:7px 9px;border:1px solid #FDE68A;border-radius:6px;font-size:13px;background:#fff" oninput="calcAmountChange(\'' + o.orderId + '\')" onkeydown="if(event.key===\'Enter\')saveOrderAmount(\'' + o.orderId + '\',' + o.rowNum + ')">' +
-            '<select id="pay-' + o.orderId + '" style="flex:1;padding:7px 6px;border:1px solid #FDE68A;border-radius:6px;font-size:12px;background:#fff" onchange="calcAmountChange(\'' + o.orderId + '\')">' +
-              PAYMENTS.map(function(p) { return '<option' + (o.payment===p?' selected':'') + '>' + p + '</option>'; }).join('') +
-            '</select>' +
-            '<button onclick="saveOrderAmount(\'' + o.orderId + '\',' + o.rowNum + ')" style="padding:7px 12px;background:#F59E0B;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0">Save</button>' +
-          '</div>' +
-          '<div id="chg-' + o.orderId + '" style="font-size:12px;color:#059669;font-weight:600;margin-top:4px;display:none"></div>' +
+      // PENDING: assign/reassign + actions row only
+      // Warnings row — show if missing amount or driver
+      var warnings = [];
+      if(!hasAmount) warnings.push('💰 Add amount');
+      if(!o.driver)  warnings.push('👤 Assign driver');
+      if(warnings.length) {
+        html += '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">' +
+          warnings.map(function(w) {
+            return '<span style="font-size:11px;font-weight:600;color:#92400E;background:#FEF3C7;border:1px solid #FDE68A;padding:2px 8px;border-radius:20px">' + w + '</span>';
+          }).join('') +
         '</div>';
       }
 
       // Assign/reassign + actions row
       html += '<div style="display:flex;gap:6px;margin-top:8px;align-items:center">' +
-        '<select id="ra-' + o.rowNum + '" style="flex:1;padding:6px 8px;font-size:12px;border:1px solid #D1D5DB;border-radius:6px;min-width:0">' +
-          '<option value="">' + (o.driver ? 'Reassign...' : 'Assign driver...') + '</option>' +
+        '<select id="ra-' + o.rowNum + '" style="flex:1;padding:6px 8px;font-size:12px;border:1px solid ' + (!o.driver ? '#FCA5A5' : '#D1D5DB') + ';border-radius:6px;min-width:0;background:' + (!o.driver ? '#FFF7F7' : '#fff') + '">' +
+          '<option value="">' + (o.driver ? 'Reassign...' : '👤 Assign driver...') + '</option>' +
           DRIVERS.filter(function(d) {
             var sc = getDriverSched(d);
             if(sc && sc.dayOff) return false;
@@ -2292,7 +2291,7 @@ function buildOrderItemHTML(o, displayStatus) {
             return '<option' + (o.driver === d ? ' selected' : '') + ' value="' + d + '">' + d + (onRun ? ' 🚚' : '') + '</option>';
           }).join('') +
         '</select>' +
-        '<button onclick="reassign(\'' + o.orderId + '\',' + o.rowNum + ')" style="padding:6px 12px;background:#1F4E79;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0">Save</button>' +
+        '<button onclick="reassignWithCheck(\'' + o.orderId + '\',' + o.rowNum + ')" style="padding:6px 12px;background:#1F4E79;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0">Save</button>' +
         '<button onclick="toggleOrderEdit(\'' + o.orderId + '\')" style="padding:6px 8px;font-size:13px;background:#F8FAFC;border:1px solid #D1D5DB;border-radius:6px;cursor:pointer" title="Edit order">✏️</button>' +
         '<button onclick="delOrder(\'' + o.orderId + '\')" style="padding:6px 8px;font-size:13px;background:#FEE2E2;border:1px solid #FCA5A5;border-radius:6px;cursor:pointer;color:#DC2626" title="Delete">🗑</button>' +
       '</div>';
@@ -2362,6 +2361,30 @@ async function saveAllAssignments() {
     loadOrders();
   } catch(e) { toast('toast-ord', 'Error: ' + e.message, false); }
   btn.textContent = 'Save All'; btn.disabled = false;
+}
+
+async function reassignWithCheck(orderId, rowNum) {
+  var sel = document.getElementById('ra-' + rowNum);
+  var driver = sel ? sel.value : '';
+
+  // Find the order to check amount
+  var ord = allOrders.find(function(o) { return o.orderId === orderId; });
+  var hasAmount = ord && ord.billAmount && parseFloat(ord.billAmount) > 0;
+
+  // Warn if no driver selected
+  if(!driver) {
+    playSound('error');
+    toast('toast-ord', '👤 Please assign a driver first', false);
+    if(sel) { sel.style.border = '2px solid #DC2626'; setTimeout(function() { sel.style.border = ''; }, 2000); }
+    return;
+  }
+
+  // Warn if no amount — but allow to proceed with confirmation
+  if(!hasAmount) {
+    if(!confirm('💰 No amount set for this order yet.\nAssign driver anyway?')) return;
+  }
+
+  await reassign(orderId, rowNum);
 }
 
 async function reassign(orderId, rowNum) {
