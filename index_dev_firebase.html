@@ -358,8 +358,17 @@ async function apiGet(action, params) {
 
     // ── getFuelLogs ────────────────────────────────────────
     if(action === 'getFuelLogs') {
-      var snap = await fb.ref('hmart/fuel').limitToLast(30).once('value');
-      return fb.objToArr(snap.val()).reverse();
+      var snap = await fb.ref('hmart/fuel').limitToLast(50).once('value');
+      return fb.objToArr(snap.val()).reverse().map(function(f) {
+        return {
+          _fbKey: f._fbKey, date: f.date||'', vehicle: f.vehicle||'',
+          driver: f.driver||'', liters: f.liters||0, amount: f.amount||0,
+          odometer: f.odometer||'', station: f.station||'',
+          pricePerLiter: f.pricePerLiter||'',
+          kmDriven: f.kmDriven||'', kmpl: f.kmpl||'',
+          flagged: f.flagged||false, fraudFlags: f.fraudFlags||null
+        };
+      });
     }
 
     // ── getAdminSettings ──────────────────────────────────
@@ -541,24 +550,45 @@ async function apiPost(action, data, _bypassQueue) {
 
     // ── updateOrderAmount ──────────────────────────────────
     if(action === 'updateOrderAmount') {
-      var upd = {};
-      if(data.billAmount !== undefined) upd.billAmount = data.billAmount;
-      if(data.change     !== undefined) upd.change     = data.change;
-      if(data.payment    !== undefined) upd.payment    = data.payment;
-      await dbUpdate('hmart/orders/' + data.orderId, upd);
+      var curOrdA2 = await dbGet('hmart/orders/' + data.orderId);
+      var tlA2 = (curOrdA2 && curOrdA2.timeline) ? Object.values(curOrdA2.timeline) : [];
+      var changes2 = [];
+      if(data.billAmount !== undefined && data.billAmount !== (curOrdA2.billAmount||'')) changes2.push('Amount: P' + (curOrdA2.billAmount||'0') + ' → P' + data.billAmount);
+      if(data.payment    !== undefined && data.payment    !== curOrdA2.payment)           changes2.push('Payment: ' + (curOrdA2.payment||'Cash') + ' → ' + data.payment);
+      var updA2 = {};
+      if(data.billAmount !== undefined) updA2.billAmount = data.billAmount;
+      if(data.change     !== undefined) updA2.change     = data.change;
+      if(data.payment    !== undefined) updA2.payment    = data.payment;
+      if(changes2.length) {
+        tlA2.push({ time: now, event: 'edited', by: 'office', note: changes2.join(' | ') });
+        updA2.timeline = tlA2;
+      }
+      await dbUpdate('hmart/orders/' + data.orderId, updA2);
       return { success: true };
     }
 
-    // ── updateOrderFull — edit all fields ─────────────────
+    // ── updateOrderFull — edit all fields with timeline log ──
     if(action === 'updateOrderFull') {
-      var upd = {};
-      if(data.businessName !== undefined) upd.businessName = data.businessName;
-      if(data.invoiceNum   !== undefined) upd.invoiceNum   = data.invoiceNum;
-      if(data.billAmount   !== undefined) upd.billAmount   = data.billAmount;
-      if(data.payment      !== undefined) upd.payment      = data.payment;
-      if(data.change       !== undefined) upd.change       = data.change;
-      if(data.notes        !== undefined) upd.notes        = data.notes;
-      await dbUpdate('hmart/orders/' + data.orderId, upd);
+      var curOrdF = await dbGet('hmart/orders/' + data.orderId);
+      var tlF = (curOrdF && curOrdF.timeline) ? Object.values(curOrdF.timeline) : [];
+      var changes = [];
+      if(data.businessName !== undefined && data.businessName !== curOrdF.businessName) changes.push('Name: "' + curOrdF.businessName + '" → "' + data.businessName + '"');
+      if(data.invoiceNum   !== undefined && data.invoiceNum   !== curOrdF.invoiceNum)   changes.push('Invoice: "' + (curOrdF.invoiceNum||'-') + '" → "' + data.invoiceNum + '"');
+      if(data.billAmount   !== undefined && data.billAmount   !== (curOrdF.billAmount||'')) changes.push('Amount: P' + (curOrdF.billAmount||'0') + ' → P' + data.billAmount);
+      if(data.payment      !== undefined && data.payment      !== curOrdF.payment)      changes.push('Payment: ' + (curOrdF.payment||'Cash') + ' → ' + data.payment);
+      if(data.notes        !== undefined && data.notes        !== curOrdF.notes)        changes.push('Notes updated');
+      if(changes.length) {
+        tlF.push({ time: now, event: 'edited', by: 'office', note: changes.join(' | ') });
+      }
+      var updF = {};
+      if(data.businessName !== undefined) updF.businessName = data.businessName;
+      if(data.invoiceNum   !== undefined) updF.invoiceNum   = data.invoiceNum;
+      if(data.billAmount   !== undefined) updF.billAmount   = data.billAmount;
+      if(data.payment      !== undefined) updF.payment      = data.payment;
+      if(data.change       !== undefined) updF.change       = data.change;
+      if(data.notes        !== undefined) updF.notes        = data.notes;
+      if(changes.length) updF.timeline = tlF;
+      await dbUpdate('hmart/orders/' + data.orderId, updF);
       return { success: true };
     }
 
@@ -608,11 +638,22 @@ async function apiPost(action, data, _bypassQueue) {
 
     // ── addFuelLog ─────────────────────────────────────────
     if(action === 'addFuelLog') {
-      await dbPush('hmart/fuel', {
+      var fuelData = {
         date: today, vehicle: data.vehicle||'', driver: data.driver||'',
         liters: data.liters||0, amount: data.amount||0,
-        odometer: data.odometer||'', station: data.station||''
-      });
+        odometer: data.odometer||'', station: data.station||'',
+        pricePerLiter: data.pricePerLiter||'',
+        kmDriven: data.kmDriven||'',
+        kmpl: data.kmpl||''
+      };
+      if(data.flagged)     fuelData.flagged     = true;
+      if(data.fraudFlags)  fuelData.fraudFlags  = data.fraudFlags;
+      await dbPush('hmart/fuel', fuelData);
+      // Update vehicle lastKm in vehicles record
+      if(data.plate && data.odometer) {
+        var vKey4 = data.plate.replace(/\s/g,'_');
+        await dbUpdate('hmart/vehicles/' + vKey4, { lastKm: data.odometer });
+      }
       return { success: true };
     }
 
@@ -1549,6 +1590,7 @@ var drvCurrentRunIds = [];
 var adminDrivers = [];
 var adminVehicles = [];
 var _onTheWayIds = {};
+var _activeDrivers = []; // drivers currently on a run — excluded from new order assigns
 
 document.getElementById('ms-date').textContent = new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
 
@@ -1664,7 +1706,9 @@ function addFastRow() {
       '<div><div class="fast-label">Assign Driver</div><select id="fr-d-' + id + '"><option value="">Unassigned</option>' +
         DRIVERS.filter(function(d) {
           var sc = getDriverSched(d);
-          return !(sc && sc.dayOff);
+          if(sc && sc.dayOff) return false;
+          if(_activeDrivers.indexOf(d) > -1) return false; // on a run
+          return true;
         }).map(function(d) { return '<option>' + d + '</option>'; }).join('') +
       '</select></div>' +
       '<div><div class="fast-label">Bill Amount P</div><input type="number" id="fr-b-' + id + '" placeholder="0" inputmode="numeric" oninput="frCalc(' + id + ')"></div>' +
@@ -1751,8 +1795,11 @@ async function loadOrders() {
     allOrders = (officeData && officeData.orders) || [];
     var runs = (officeData && officeData.runs) || [];
     _onTheWayIds = {};
+    _activeDrivers = []; // drivers currently on a run
     runs.filter(function(r) { return r.status === 'IN PROGRESS'; }).forEach(function(r) {
       if(r.orderIds) r.orderIds.forEach(function(id) { _onTheWayIds[id] = r.driver; });
+      if(r.driver && _activeDrivers.indexOf(r.driver) === -1) _activeDrivers.push(r.driver);
+      if(r.coDriver && _activeDrivers.indexOf(r.coDriver) === -1) _activeDrivers.push(r.coDriver);
     });
     renderOrders();
   } catch(e) { listEl.innerHTML = '<div class="empty">Error loading</div>'; }
@@ -1912,18 +1959,35 @@ function buildOrderItemHTML(o, displayStatus) {
       '</div>';
     }
     html += amountRow;
-    html += '<div style="display:flex;gap:6px;margin-top:8px;align-items:center">' +
-      '<select id="ra-' + o.rowNum + '" style="flex:1;padding:6px 8px;font-size:12px;border:1px solid #D1D5DB;border-radius:5px">' +
-        '<option value="">Reassign...</option>' +
-        DRIVERS.filter(function(d) {
-          var sc = getDriverSched(d);
-          return !(sc && sc.dayOff);
-        }).map(function(d) { return '<option' + (o.driver === d ? ' selected' : '') + '>' + d + '</option>'; }).join('') +
-      '</select>' +
-      '<button class="btn-blue-off" onclick="reassign(\'' + o.orderId + '\',' + o.rowNum + ')">Save</button>' +
-      '<button onclick="toggleOrderEdit(\'' + o.orderId + '\')" style="padding:6px 10px;font-size:12px;background:#F8FAFC;border:1px solid #D1D5DB;border-radius:5px;color:#374151;cursor:pointer">✏️ Edit</button>' +
-      '<button class="btn-danger-off" onclick="delOrder(\'' + o.orderId + '\')">Del</button>' +
-    '</div>' +
+
+    var isLocked = (displayStatus === 'IN PROGRESS' || displayStatus === 'ON THE WAY');
+    if(isLocked) {
+      html += '<div style="display:flex;gap:6px;margin-top:8px;align-items:center;background:#F8FAFC;border-radius:6px;padding:7px 10px">' +
+        '<span style="font-size:13px">🔒</span>' +
+        '<span style="font-size:12px;color:#64748B;flex:1">Driver locked — on delivery</span>' +
+        '<button onclick="toggleOrderEdit(\'' + o.orderId + '\')" style="padding:5px 10px;font-size:11px;background:#fff;border:1px solid #D1D5DB;border-radius:5px;color:#374151;cursor:pointer">✏️ Edit</button>' +
+        '<button class="btn-danger-off" onclick="delOrder(\'' + o.orderId + '\')">Del</button>' +
+      '</div>';
+    } else {
+      html += '<div style="display:flex;gap:6px;margin-top:8px;align-items:center">' +
+        '<select id="ra-' + o.rowNum + '" style="flex:1;padding:6px 8px;font-size:12px;border:1px solid #D1D5DB;border-radius:5px">' +
+          '<option value="">Reassign...</option>' +
+          DRIVERS.filter(function(d) {
+            var sc = getDriverSched(d);
+            if(sc && sc.dayOff) return false;
+            if(_activeDrivers.indexOf(d) > -1 && d !== o.driver) return false;
+            return true;
+          }).map(function(d) {
+            var onRun = _activeDrivers.indexOf(d) > -1;
+            return '<option' + (o.driver === d ? ' selected' : '') + ' value="' + d + '">' + d + (onRun ? ' 🚚' : '') + '</option>';
+          }).join('') +
+        '</select>' +
+        '<button class="btn-blue-off" onclick="reassign(\'' + o.orderId + '\',' + o.rowNum + ')">Save</button>' +
+        '<button onclick="toggleOrderEdit(\'' + o.orderId + '\')" style="padding:6px 10px;font-size:12px;background:#F8FAFC;border:1px solid #D1D5DB;border-radius:5px;color:#374151;cursor:pointer">✏️ Edit</button>' +
+        '<button class="btn-danger-off" onclick="delOrder(\'' + o.orderId + '\')">Del</button>' +
+      '</div>';
+    }
+    html +=
     // Inline edit panel (hidden by default)
     '<div id="edit-panel-' + o.orderId + '" style="display:none;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:12px;margin-top:8px">' +
       '<div style="font-size:11px;font-weight:600;color:#64748B;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em">Edit Order</div>' +
@@ -2760,27 +2824,52 @@ async function drvSubmitFuel() {
   var vOpt    = vSel && vSel.selectedOptions[0];
   var vehicle = vOpt ? (vOpt.dataset.vehicle||'') : '';
   var plate   = vOpt ? (vOpt.dataset.plate||'')   : '';
-  var liters  = (document.getElementById('drv-fuel-liters') ||{}).value || '';
-  var amount  = (document.getElementById('drv-fuel-amount') ||{}).value || '';
-  var odo     = (document.getElementById('drv-fuel-odo')    ||{}).value || '';
+  var liters  = parseFloat((document.getElementById('drv-fuel-liters') ||{}).value) || 0;
+  var amount  = parseFloat((document.getElementById('drv-fuel-amount') ||{}).value) || 0;
+  var odo     = parseFloat((document.getElementById('drv-fuel-odo')    ||{}).value) || 0;
   var station = (document.getElementById('drv-fuel-station')||{}).value || '';
+
   if(!driver)           { toast('drv-toast', 'Select driver',           false); return; }
   if(!vehicle)          { toast('drv-toast', 'Select vehicle',          false); return; }
   if(!liters || !amount){ toast('drv-toast', 'Enter liters and amount', false); return; }
+
+  // ── FRAUD DETECTION (silent — driver sees generic msg, admin sees flags) ──
+  var fraudFlags = [];
+  var pricePerL = amount / liters;
+  var MIN_PRICE = 65, MAX_PRICE = 100;
+  if(pricePerL < MIN_PRICE) fraudFlags.push('Low unit price P' + Math.round(pricePerL) + '/L — liters may be overreported');
+  if(pricePerL > MAX_PRICE) fraudFlags.push('High unit price P' + Math.round(pricePerL) + '/L — amount may be inflated');
+  var lastKm = vOpt ? parseFloat(vOpt.dataset.lastKm||0) : 0;
+  if(odo > 0 && lastKm > 0 && odo < lastKm) fraudFlags.push('Odometer backwards: ' + odo + ' < last ' + lastKm + ' km');
+  var kmDriven = (odo > 0 && lastKm > 0 && odo >= lastKm) ? (odo - lastKm) : 0;
+  if(kmDriven > 0 && liters > 0) {
+    var kmpl = kmDriven / liters;
+    if(kmpl > 20) fraudFlags.push('High efficiency ' + Math.round(kmpl*10)/10 + ' km/L — odometer may be inflated');
+    if(kmpl < 2)  fraudFlags.push('Low efficiency '  + Math.round(kmpl*10)/10 + ' km/L — liters may be overreported');
+  }
+  if(liters > 80) fraudFlags.push('Liters (' + liters + 'L) exceeds typical tank — verify receipt');
+
   var btn = document.querySelector('#drv-fuel-screen button:last-child');
   if(btn) { btn.textContent = 'Saving...'; btn.disabled = true; }
+
   var r = await apiPost('addFuelLog', {
     driver: driver, vehicle: vehicle, plate: plate,
-    liters: parseFloat(liters), amount: parseFloat(amount),
-    odometer: odo ? parseFloat(odo) : '', station: station
+    liters: liters, amount: amount, odometer: odo||'', station: station,
+    pricePerLiter: Math.round(pricePerL),
+    kmDriven: kmDriven||'',
+    kmpl: kmDriven > 0 ? Math.round(kmDriven/liters*10)/10 : '',
+    fraudFlags: fraudFlags.length ? fraudFlags : null,
+    flagged: fraudFlags.length > 0
   });
+
   if(btn) { btn.textContent = '\u26FD Save Fuel Log'; btn.disabled = false; }
   if(r && r.success) {
     playSound('success');
-    toast('drv-toast', '\u26FD Fuel logged!', true);
-    if(vOpt && odo) vOpt.dataset.lastKm = odo;
+    // Generic message — don't reveal what was flagged
+    toast('drv-toast', fraudFlags.length ? '\u26FD Saved — keep your receipt for verification' : '\u26FD Fuel logged!', true);
+    if(vOpt && odo) vOpt.dataset.lastKm = String(odo);
     if(plate) delete _vehicleFuelHistory[plate];
-    setTimeout(hideDrvFuelScreen, 1200);
+    setTimeout(hideDrvFuelScreen, 1800);
   } else { toast('drv-toast', 'Error saving fuel', false); }
 }
 
@@ -3292,13 +3381,39 @@ async function addFuel() {
 async function loadFuel() {
   document.getElementById('fuel-list').innerHTML='<div class="empty">Loading...</div>';
   try {
-    var list=await apiGet('getFuelLogs');
-    if(!list||!list.length){document.getElementById('fuel-list').innerHTML='<div class="empty">No logs yet</div>';return;}
-    document.getElementById('fuel-list').innerHTML=list.map(function(f){
-      return '<div class="fuel-row"><div style="display:flex;justify-content:space-between"><strong>'+f.vehicle+'</strong><span style="color:#64748B">'+f.date+'</span></div>'+
-        '<div style="display:flex;gap:10px;margin-top:3px;color:#64748B"><span>'+f.liters+' L</span><span>P'+f.amount+'</span>'+(f.odometer?'<span>'+f.odometer+' km</span>':'')+(f.driver?'<span>'+f.driver+'</span>':'')+(f.station?'<span>'+f.station+'</span>':'')+'</div></div>';
+    var list = await apiGet('getFuelLogs');
+    if(!list||!list.length){ document.getElementById('fuel-list').innerHTML='<div class="empty">No logs yet</div>'; return; }
+
+    // Show flagged items first
+    var flagged = list.filter(function(f){ return f.flagged; });
+    var normal  = list.filter(function(f){ return !f.flagged; });
+    var sorted  = flagged.concat(normal);
+
+    document.getElementById('fuel-list').innerHTML = sorted.map(function(f) {
+      var isFlagged = f.flagged;
+      var flags = f.fraudFlags ? (Array.isArray(f.fraudFlags) ? f.fraudFlags : Object.values(f.fraudFlags)) : [];
+      return '<div class="fuel-row" style="' + (isFlagged ? 'border-left:4px solid #DC2626;background:#FEF2F2' : '') + '">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center">' +
+          '<strong>' + f.vehicle + '</strong>' +
+          (isFlagged ? '<span style="background:#DC2626;color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">⚠ REVIEW</span>' : '') +
+          '<span style="color:#64748B;font-size:12px">' + f.date + '</span>' +
+        '</div>' +
+        '<div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap;font-size:12px;color:#374151">' +
+          '<span>⛽ <strong>' + f.liters + ' L</strong></span>' +
+          '<span>P<strong>' + f.amount + '</strong></span>' +
+          (f.pricePerLiter ? '<span style="color:#64748B">P' + f.pricePerLiter + '/L</span>' : '') +
+          (f.kmDriven ? '<span style="color:#1F4E79">📏 ' + f.kmDriven + ' km</span>' : '') +
+          (f.kmpl ? '<span style="color:#7C3AED;font-weight:600">⚡ ' + f.kmpl + ' km/L</span>' : '') +
+          (f.odometer ? '<span style="color:#64748B">📍 ' + f.odometer + ' km</span>' : '') +
+          (f.driver ? '<span>👤 ' + f.driver + '</span>' : '') +
+          (f.station ? '<span>🏪 ' + f.station + '</span>' : '') +
+        '</div>' +
+        (flags.length ? '<div style="margin-top:6px;padding:6px 8px;background:#FEE2E2;border-radius:5px">' +
+          flags.map(function(fl){ return '<div style="font-size:11px;color:#DC2626">⚠ ' + fl + '</div>'; }).join('') +
+        '</div>' : '') +
+      '</div>';
     }).join('');
-  } catch(e){document.getElementById('fuel-list').innerHTML='<div class="empty">Error</div>';}
+  } catch(e){ document.getElementById('fuel-list').innerHTML='<div class="empty">Error</div>'; }
 }
 
 // ---- EXPORT ----
