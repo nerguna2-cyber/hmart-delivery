@@ -222,13 +222,6 @@ const FIREBASE_CONFIG = {
 firebase.initializeApp(FIREBASE_CONFIG);
 var _db = firebase.database();
 
-// ── Keep critical paths synced in memory for offline use ──────
-// This tells Firebase to cache these paths in memory continuously
-_db.ref('hmart/orders').keepSynced(true);
-_db.ref('hmart/runs').keepSynced(true);
-_db.ref('hmart/vehicles').keepSynced(true);
-_db.ref('hmart/settings').keepSynced(true);
-
 // ── Monitor real Firebase connection state ────────────────────
 _db.ref('.info/connected').on('value', function(snap) {
   var connected = snap.val() === true;
