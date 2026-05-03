@@ -2432,11 +2432,6 @@ async function reassignWithCheck(orderId, rowNum) {
   var sel = document.getElementById('ra-' + rowNum);
   var driver = sel ? sel.value : '';
 
-  // Find the order to check amount
-  var ord = allOrders.find(function(o) { return o.orderId === orderId; });
-  var hasAmount = ord && ord.billAmount && parseFloat(ord.billAmount) > 0;
-
-  // Warn if no driver selected
   if(!driver) {
     playSound('error');
     toast('toast-ord', '👤 Please assign a driver first', false);
@@ -2444,12 +2439,62 @@ async function reassignWithCheck(orderId, rowNum) {
     return;
   }
 
-  // Warn if no amount — but allow to proceed with confirmation
-  if(!hasAmount) {
-    if(!confirm('💰 No amount set for this order yet.\nAssign driver anyway?')) return;
+  var ord = allOrders.find(function(o) { return o.orderId === orderId; });
+  var hasAmount  = ord && ord.billAmount && parseFloat(ord.billAmount) > 0;
+  var hasInvoice = ord && ord.invoiceNum && ord.invoiceNum.trim();
+  var isBiz = hasInvoice; // if has invoice, it's a business/account order
+
+  // Build warning list
+  var warnings = [];
+  if(!hasAmount)  warnings.push({ icon:'💰', text:'No amount set', detail:'Amount hasn\'t been entered yet' });
+  if(!hasInvoice) warnings.push({ icon:'📋', text:'No invoice number', detail:'Is this a Personal order?' });
+
+  if(warnings.length) {
+    var confirmed = await showAssignConfirm(driver, ord ? ord.businessName : '', warnings, !hasInvoice);
+    if(!confirmed) return;
   }
 
   await reassign(orderId, rowNum);
+}
+
+function showAssignConfirm(driver, businessName, warnings, askPersonal) {
+  return new Promise(function(resolve) {
+    var existing = document.getElementById('assign-confirm-popup');
+    if(existing) existing.remove();
+
+    var popup = document.createElement('div');
+    popup.id = 'assign-confirm-popup';
+    popup.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+
+    var warningHTML = warnings.map(function(w) {
+      return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px;background:#FEF9C3;border-radius:8px;margin-bottom:6px">' +
+        '<span style="font-size:18px">' + w.icon + '</span>' +
+        '<div><div style="font-size:13px;font-weight:700;color:#92400E">' + w.text + '</div>' +
+        '<div style="font-size:12px;color:#B45309">' + w.detail + '</div></div>' +
+      '</div>';
+    }).join('');
+
+    popup.innerHTML =
+      '<div style="background:#fff;border-radius:16px;padding:24px 20px;max-width:340px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.25)">' +
+        '<div style="font-size:22px;text-align:center;margin-bottom:8px">⚠️</div>' +
+        '<div style="font-size:16px;font-weight:800;color:#1F2937;text-align:center;margin-bottom:4px">Before assigning to ' + driver + '</div>' +
+        '<div style="font-size:13px;color:#64748B;text-align:center;margin-bottom:14px">' + businessName + '</div>' +
+        warningHTML +
+        (askPersonal ?
+          '<div style="background:#EFF6FF;border-radius:8px;padding:10px 12px;margin-top:8px;margin-bottom:16px;font-size:12px;color:#1E40AF">' +
+            '💡 Account orders have invoice numbers. If this is a <strong>Personal delivery</strong>, tap Confirm to proceed.' +
+          '</div>' : '<div style="margin-bottom:16px"></div>') +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+          '<button onclick="document.getElementById(\'assign-confirm-popup\').remove();window._assignResolve(false);" ' +
+            'style="padding:12px;background:#F1F5F9;border:none;border-radius:10px;font-size:14px;font-weight:600;color:#374151;cursor:pointer">← Go Back</button>' +
+          '<button onclick="document.getElementById(\'assign-confirm-popup\').remove();window._assignResolve(true);" ' +
+            'style="padding:12px;background:#1F4E79;border:none;border-radius:10px;font-size:14px;font-weight:700;color:#fff;cursor:pointer">Confirm ✓</button>' +
+        '</div>' +
+      '</div>';
+
+    window._assignResolve = resolve;
+    document.body.appendChild(popup);
+  });
 }
 
 async function reassign(orderId, rowNum) {
@@ -3983,7 +4028,6 @@ async function loadLive() {
     var activeDriverNames = active.map(function(r) { return r.driver; });
     var nowMins = new Date().getHours()*60 + new Date().getMinutes();
     DRIVERS.forEach(function(d) {
-      var onRoad     = activeNames && activeNames.indexOf(d) > -1;
       var onRoad     = activeDriverNames.indexOf(d) > -1;
       var sched      = getDriverSched(d);
       var isDayOff   = !!(sched.dayOff);
@@ -3991,10 +4035,10 @@ async function loadLive() {
       var actualCO   = actualClockouts[d] || null;
 
       // Times
-      var dutyOnMins  = sched.dutyon  ? parseInt(sched.dutyon.split(':')[0])*60  + parseInt(sched.dutyon.split(':')[1])  : -1;
-      var dutyOffMins = (actualCO || sched.dutyoff) ? (function(t){ return parseInt(t.split(':')[0])*60+parseInt(t.split(':')[1]); })(actualCO||sched.dutyoff) : -1;
+      var dutyOnMins  = sched.dutyon  ? parseInt(sched.dutyon.split(':')[0])*60  + parseInt(sched.dutyon.split(':')[1]||0)  : -1;
+      var dutyOffMins = (actualCO || sched.dutyoff) ? (function(t){ return parseInt(t.split(':')[0])*60+parseInt(t.split(':')[1]||0); })(actualCO||sched.dutyoff) : -1;
       var brkTime     = actualB || sched.breakStart;
-      var brkMins     = brkTime ? parseInt(brkTime.split(':')[0])*60+parseInt(brkTime.split(':')[1]) : -1;
+      var brkMins     = brkTime ? parseInt(brkTime.split(':')[0])*60+parseInt(brkTime.split(':')[1]||0) : -1;
 
       // State logic
       var notStarted = !onRoad && !isDayOff && dutyOnMins > -1 && nowMins < dutyOnMins;
@@ -4037,7 +4081,10 @@ async function loadLive() {
     html += '</div>';
 
     document.getElementById('live-list').innerHTML = html || '<div class="empty">No activity today</div>';
-  } catch(e) { document.getElementById('live-list').innerHTML = '<div class="empty">Error loading</div>'; }
+  } catch(e) { 
+    console.error('loadLive error:', e);
+    document.getElementById('live-list').innerHTML = '<div class="empty">Error loading: ' + e.message + '</div>'; 
+  }
   if(refreshBtn) { refreshBtn.textContent = 'Refresh'; refreshBtn.disabled = false; }
 }
 
