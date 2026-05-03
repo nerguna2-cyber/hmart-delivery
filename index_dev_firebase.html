@@ -2558,6 +2558,15 @@ async function drvSelectName() {
   var specSec = document.getElementById('drv-special-section');
   if(specSec) specSec.style.display = 'block';
 
+  // Show warning if driver is on an active delivery run
+  var spWarn = document.getElementById('special-active-warning');
+  if(!spWarn) {
+    spWarn = document.createElement('div');
+    spWarn.id = 'special-active-warning';
+    specSec.insertBefore(spWarn, specSec.firstChild);
+  }
+  // Will be updated after drvLoadData
+
   var spKey = 'hmart_special_run_' + driver;
   var spData = null;
   try { var spRaw = localStorage.getItem(spKey); if(spRaw) spData = JSON.parse(spRaw); } catch(e) {}
@@ -2668,8 +2677,23 @@ async function drvLoadData() {
     if(activeRun.length) {
       showActiveRun(activeRun[activeRun.length - 1], orders);
     } else {
-      // Always show predep (driver can have pending orders even during/after special run)
       showPreDep(orders);
+    }
+
+    // Update Special Run section warning
+    var spWarn = document.getElementById('special-active-warning');
+    if(spWarn) {
+      if(activeRun.length > 0) {
+        spWarn.innerHTML = '<div style="background:#FEE2E2;border:1px solid #FCA5A5;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;font-weight:600;color:#DC2626">' +
+          '🔒 Currently on a delivery run — complete it before starting an emergency run</div>';
+        // Also disable the open button
+        var spBtn2 = document.getElementById('special-toggle-btn');
+        if(spBtn2 && !specialRunActive) { spBtn2.disabled = true; spBtn2.style.opacity = '0.4'; }
+      } else {
+        spWarn.innerHTML = '';
+        var spBtn3 = document.getElementById('special-toggle-btn');
+        if(spBtn3) { spBtn3.disabled = false; spBtn3.style.opacity = '1'; }
+      }
     }
   } catch(e) {
     var ld = document.getElementById('drv-loading-msg');
@@ -4336,18 +4360,29 @@ function renderReport(data) {
     if(o.status === 'COMPLETED') driverMap[o.driver].orders++;
   });
 
-  // Re-build vehicleMap
+  // Re-build vehicleMap — use plate as key to avoid duplicate entries
   var vehicleMap = {};
+  function vehKey(vehicle, plate) {
+    // Normalize: extract base name (remove plate if already embedded)
+    var baseName = (vehicle||'unknown').replace(/\s*\([^)]+\)\s*$/, '').trim();
+    var p = (plate||'').trim();
+    return p ? p : baseName; // plate is unique key
+  }
+  function vehDisplay(vehicle, plate) {
+    var baseName = (vehicle||'').replace(/\s*\([^)]+\)\s*$/, '').trim();
+    var p = (plate||'').trim();
+    return baseName + (p ? ' (' + p + ')' : '');
+  }
   (data.runs || []).forEach(function(r) {
-    var key = (r.vehicle||'unknown') + (r.plate ? ' (' + r.plate + ')' : '');
-    if(!vehicleMap[key]) vehicleMap[key] = { runs:0, km:0, fuelL:0, fuelCost:0 };
+    var key = vehKey(r.vehicle, r.plate);
+    if(!vehicleMap[key]) vehicleMap[key] = { label: vehDisplay(r.vehicle, r.plate), runs:0, km:0, fuelL:0, fuelCost:0 };
     vehicleMap[key].runs++;
     vehicleMap[key].km += parseFloat(r.distKm) || 0;
   });
   (data.fuels || []).forEach(function(f) {
-    var key = (f.vehicle||'unknown') + (f.plate ? ' (' + f.plate + ')' : '');
-    if(!vehicleMap[key]) vehicleMap[key] = { runs:0, km:0, fuelL:0, fuelCost:0 };
-    vehicleMap[key].fuelL   += parseFloat(f.liters) || 0;
+    var key = vehKey(f.vehicle, f.plate);
+    if(!vehicleMap[key]) vehicleMap[key] = { label: vehDisplay(f.vehicle, f.plate), runs:0, km:0, fuelL:0, fuelCost:0 };
+    vehicleMap[key].fuelL    += parseFloat(f.liters) || 0;
     vehicleMap[key].fuelCost += parseFloat(f.amount) || 0;
   });
 
@@ -4392,7 +4427,7 @@ function renderReport(data) {
     Object.keys(vehicleMap).forEach(function(v) {
       var vm = vehicleMap[v];
       var eff = vm.fuelL > 0 ? (Math.round((vm.km / vm.fuelL)*10)/10) + ' km/L' : '-';
-      html += '<tr><td><strong>' + v + '</strong></td><td>' + vm.runs + '</td><td>' + (Math.round(vm.km*10)/10) + ' km</td><td>' + (vm.fuelL ? (Math.round(vm.fuelL*10)/10) : '-') + '</td><td>' + (vm.fuelCost ? 'P' + Math.round(vm.fuelCost).toLocaleString() : '-') + '</td><td>' + eff + '</td></tr>';
+      html += '<tr><td><strong>' + (vm.label||v) + '</strong></td><td>' + vm.runs + '</td><td>' + (Math.round(vm.km*10)/10) + ' km</td><td>' + (vm.fuelL ? (Math.round(vm.fuelL*10)/10) : '-') + '</td><td>' + (vm.fuelCost ? 'P' + Math.round(vm.fuelCost).toLocaleString() : '-') + '</td><td>' + eff + '</td></tr>';
     });
     html += '</tbody></table></div></div>';
   }
@@ -4756,18 +4791,41 @@ async function specialDepart() {
   if(!runType)    { toast('drv-toast', 'Select run type', false); return; }
   if(!vehicle)    { toast('drv-toast', 'Select vehicle', false); return; }
   if(!depKm)      { toast('drv-toast', 'Enter departure KM', false); return; }
+
+  // ── Block if driver already on an active delivery run ──
+  if(_activeDrivers.indexOf(curDriver) > -1) {
+    playSound('error');
+    toast('drv-toast', '🔒 ' + curDriver + ' is currently on a delivery run. Complete it first before starting an emergency run.', false);
+    return;
+  }
+
+  // ── Validate departure KM against vehicle last known KM ──
+  var dep = parseFloat(depKm);
   var vSel  = document.getElementById('special-vehicle');
-  var plate = (vSel.options[vSel.selectedIndex] && vSel.options[vSel.selectedIndex].dataset.plate) || '';
-  var btn   = document.getElementById('special-depart-btn');
+  var selOpt = vSel && vSel.options[vSel.selectedIndex];
+  var plate = (selOpt && selOpt.dataset.plate) || '';
+  var lastKm = selOpt ? parseFloat(selOpt.dataset.lastKm || 0) : 0;
+  if(lastKm > 0 && dep < lastKm) {
+    playSound('error');
+    var kmEl = document.getElementById('special-depkm');
+    if(kmEl) { kmEl.style.border = '2px solid #DC2626'; kmEl.style.background = '#FEF2F2'; }
+    toast('drv-toast', '⚠ Departure KM ' + dep + ' < last recorded ' + lastKm + ' km! Check odometer.', false);
+    return;
+  }
+  var kmEl2 = document.getElementById('special-depkm');
+  if(kmEl2) { kmEl2.style.border = ''; kmEl2.style.background = ''; }
+
+  var btn = document.getElementById('special-depart-btn');
   btn.textContent = 'Departing...'; btn.disabled = true;
   try {
     var r = await apiPost('submitDeparture', {
       driver: curDriver, vehicle: vehicle, plate: plate,
       destination: '🚨 ' + runType + (notes ? ' — ' + notes : ''),
-      depKm: parseFloat(depKm), coDriver: codrv, orderIds: []
+      depKm: dep, coDriver: codrv, orderIds: []
     });
     btn.textContent = '🚨 Special / Emergency Depart'; btn.disabled = false;
     if(r && r.success) {
+      playSound('depart');
       specialRunActive = true;
       var infoEl = document.getElementById('special-run-info');
       if(infoEl) infoEl.innerHTML = '🚨 <strong>' + runType + '</strong> | ' + vehicle + ' | Dep: <strong>' + depKm + ' km</strong>';
@@ -4775,20 +4833,49 @@ async function specialDepart() {
       document.getElementById('special-active').style.display = 'block';
       var toggleBtn = document.getElementById('special-toggle-btn');
       if(toggleBtn) toggleBtn.style.display = 'none';
-    } else toast('drv-toast', 'Error departing', false);
+    } else { playSound('error'); toast('drv-toast', (r && r.message) || 'Error departing', false); }
   } catch(e) { btn.textContent = '🚨 Special / Emergency Depart'; btn.disabled = false; toast('drv-toast', 'Error: ' + e.message, false); }
 }
 
 async function specialArrive() {
-  var arrKm   = document.getElementById('special-arrkm').value;
-  var remarks = document.getElementById('special-remarks').value;
-  if(!arrKm) { toast('drv-toast', 'Enter arrival KM', false); return; }
+  var arrKmStr = (document.getElementById('special-arrkm')||{}).value || '';
+  var remarks  = (document.getElementById('special-remarks')||{}).value || '';
+  if(!arrKmStr) { toast('drv-toast', 'Enter arrival KM', false); return; }
+
+  var arr = parseFloat(arrKmStr);
+
+  // Validate against stored special dep KM
+  var depKmEl = document.getElementById('special-depkm');
+  var spInfoEl = document.getElementById('special-run-info');
+  var dep = 0;
+  // Try to extract from info display
+  if(spInfoEl) {
+    var m = spInfoEl.innerHTML.match(/Dep:.*?(\d+)/);
+    if(m) dep = parseFloat(m[1]);
+  }
+  // Fallback: try stored depkm field
+  if(!dep && depKmEl && depKmEl.value) dep = parseFloat(depKmEl.value);
+
+  if(dep > 0 && arr < dep) {
+    playSound('error');
+    var el = document.getElementById('special-arrkm');
+    if(el) { el.style.border = '2px solid #DC2626'; el.style.background = '#FEF2F2'; }
+    toast('drv-toast', '⚠ Arrival KM ' + arr + ' < Departure KM ' + dep + '! Check again.', false);
+    return;
+  }
+  if(dep > 0 && arr === dep) {
+    if(!confirm('Arrival KM = Departure KM (' + dep + ')\nDistance will be 0 km. Continue?')) return;
+  }
+  var el2 = document.getElementById('special-arrkm');
+  if(el2) { el2.style.border = ''; el2.style.background = ''; }
+
   var btn = document.querySelector('#special-active .btn-arrive');
-  btn.textContent = 'Saving...'; btn.disabled = true;
+  if(btn) { btn.textContent = 'Saving...'; btn.disabled = true; }
   try {
-    var r = await apiPost('submitArrival', { driver: curDriver, arrKm: parseFloat(arrKm), remarks: remarks });
-    btn.textContent = 'Complete Special Run ✓'; btn.disabled = false;
+    var r = await apiPost('submitArrival', { driver: curDriver, arrKm: arr, remarks: remarks });
+    if(btn) { btn.textContent = 'Complete Special Run ✓'; btn.disabled = false; }
     if(r && r.success) {
+      playSound('complete');
       toast('drv-toast', 'Special run completed! +' + r.distance + ' km', true);
       specialRunActive = false;
       try { localStorage.removeItem('hmart_special_run_' + curDriver); } catch(e2) {}
@@ -4806,9 +4893,10 @@ async function specialArrive() {
         document.querySelectorAll('.special-type-btn').forEach(function(b) {
           b.style.background = '#fff'; b.style.color = '#374151'; b.style.borderColor = '#D1D5DB';
         });
-      }, 2000);
-    } else toast('drv-toast', (r && r.message) || 'Error', false);
-  } catch(e) { btn.textContent = 'Complete Special Run ✓'; btn.disabled = false; toast('drv-toast', 'Error: ' + e.message, false); }
+        drvLoadData();
+      }, 1500);
+    } else { playSound('error'); toast('drv-toast', (r && r.message) || 'Error', false); }
+  } catch(e) { if(btn) { btn.textContent = 'Complete Special Run ✓'; btn.disabled = false; } toast('drv-toast', 'Error: ' + e.message, false); }
 }
 </script>
 
