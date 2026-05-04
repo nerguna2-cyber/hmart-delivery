@@ -2086,12 +2086,7 @@ async function saveAllOrders() {
   if(!valid) return;
 
   // ── Check for missing invoice numbers ──────────────────────
-  var noInvoice = orders.filter(function(o) { return !o.invoiceNum; });
-  if(noInvoice.length) {
-    var names = noInvoice.map(function(o) { return '• ' + o.businessName; }).join('\n');
-    var confirmed = await showInvoiceConfirm(noInvoice);
-    if(!confirmed) return;
-  }
+  // (Removed — check happens at driver assignment stage instead)
 
   var btn = document.querySelector('#tab-orders .btn-primary-off');
   btn.textContent = 'Saving...'; btn.disabled = true;
