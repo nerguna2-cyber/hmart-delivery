@@ -1792,7 +1792,7 @@ function showNetworkStatus(msg, color) {
         </div>
 
         <!-- No vehicle selected state -->
-        <div id="av-empty" class="empty" style="padding:40px">
+        <div id="av-empty" class="empty" style="display:none;padding:40px">
           Select a vehicle above to view its profile
         </div>
 
@@ -4797,7 +4797,13 @@ function switchAdmin(t) {
     if(de&&!de.value) de.value=today;
   }
   if(t==='performance') loadAdminPerformance();
-  if(t==='vehicles') { populateVehicleSelector(); loadFleetOverview(); }
+  if(t==='vehicles') {
+    // Reset vehicle detail panel
+    var p = document.getElementById('av-profile');
+    if(p) p.style.display = 'none';
+    populateVehicleSelector();
+    loadFleetOverview();
+  }
 }
 
 async function loadAdminPerformance() {
