@@ -865,12 +865,24 @@ async function apiPost(action, data, _bypassQueue) {
         }
       });
 
-      // Archive fuel and checklists (keep originals)
+      // Archive + delete fuel logs
       fb.objToArr(fuelObj).forEach(function(f) {
-        if(f.date === today) tasks.push(dbSet('hmart/archive/' + today + '/fuel/' + f._fbKey, f));
+        if(f.date === today) {
+          tasks.push(
+            dbSet('hmart/archive/' + today + '/fuel/' + f._fbKey, f)
+              .then(function() { return dbRemove('hmart/fuel/' + f._fbKey); })
+          );
+        }
       });
+
+      // Archive + delete checklists
       fb.objToArr(chkObj).forEach(function(c) {
-        if(c.date === today) tasks.push(dbSet('hmart/archive/' + today + '/checklists/' + c._fbKey, c));
+        if(c.date === today) {
+          tasks.push(
+            dbSet('hmart/archive/' + today + '/checklists/' + c._fbKey, c)
+              .then(function() { return dbRemove('hmart/checklists/' + c._fbKey); })
+          );
+        }
       });
 
       await Promise.all(tasks);
@@ -4525,7 +4537,7 @@ async function resetAllToday() {
     if(r && r.success) {
       toast('toast-admin', '✅ 리셋 완료! 오더 ' + r.ordersDeleted + '건, 런 ' + r.runsDeleted + '건 archive 저장', true);
       addResetLog('🔄 리셋 완료 — 오더 ' + r.ordersDeleted + '건 + 런 ' + r.runsDeleted + '건 archive 저장');
-      // Clear today's break logs from localStorage
+      // Clear today's local state
       var todayStr = new Date().toLocaleDateString('en-CA');
       actualBreaks = {};
       actualClockouts = {};
@@ -4536,6 +4548,9 @@ async function resetAllToday() {
       var sc = document.getElementById('eod-summary-content');
       if(sc) sc.style.display = 'none';
       loadOrders();
+      // Refresh fuel tab if open
+      var fuelEl = document.getElementById('tab-fuel');
+      if(fuelEl && fuelEl.classList.contains('active') && typeof loadFuel === 'function') loadFuel();
     }
   } catch(e) {
     if(btn) { btn.textContent = origText; btn.disabled = false; }
