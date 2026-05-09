@@ -1715,6 +1715,13 @@ function showNetworkStatus(msg, color) {
 
       </div>
 
+        <!-- Vehicle detail panel -->
+        <div id="av-profile" style="display:none;background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:16px;margin-top:0">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div id="av-profile-title" style="font-size:15px;font-weight:700;color:#1F4E79"></div>
+            <button onclick="closeVehicleProfile()" style="padding:5px 12px;background:#F1F5F9;border:none;border-radius:6px;cursor:pointer;font-size:13px;color:#374151">&#x2715; Close</button>
+          </div>
+
           <!-- KPI cards -->
           <div id="av-kpi" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px"></div>
 
@@ -1792,6 +1799,8 @@ function showNetworkStatus(msg, color) {
         </div>
 
         <!-- No vehicle selected state -->
+        </div>
+
         <div id="av-empty" class="empty" style="display:none;padding:40px">
           Select a vehicle above to view its profile
         </div>
