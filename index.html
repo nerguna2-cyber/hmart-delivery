@@ -4320,37 +4320,49 @@ async function loadLive() {
     var html = '';
     var active = runs.filter(function(r) { return r.status === 'IN PROGRESS'; });
 
-    // ── PENDING ORDERS (not yet departed) ──
+    // ── PENDING ORDERS — split by assigned/unassigned ──
     var pendingOrds = orders.filter(function(o) {
       return o.status === 'PENDING' && !_onTheWayIds[o.orderId];
     });
-    if(pendingOrds.length) {
-      var nowMins = new Date().getHours()*60 + new Date().getMinutes();
-      html += '<div class="section-label" style="color:#D97706">⏳ Waiting to Depart (' + pendingOrds.length + ')</div>';
+    var unassigned  = pendingOrds.filter(function(o){ return !o.driver; });
+    var waitDepart  = pendingOrds.filter(function(o){ return !!o.driver; });
+    var nowMins = new Date().getHours()*60 + new Date().getMinutes();
+
+    function waitCard(o, borderColor, bgColor) {
+      var waitMins = 0;
+      if(o.createdTime) {
+        var ctMins = parseInt(o.createdTime.split(':')[0])*60 + parseInt(o.createdTime.split(':')[1]);
+        waitMins = Math.max(0, nowMins - ctMins);
+      }
+      var urgColor = waitMins >= 60 ? '#DC2626' : waitMins >= 30 ? '#F59E0B' : borderColor;
+      var urgBg    = waitMins >= 60 ? '#FEF2F2' : waitMins >= 30 ? '#FFFBEB' : bgColor;
+      return '<div style="background:' + urgBg + ';border:1px solid #E2E8F0;border-left:3px solid ' + urgColor + ';border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+        '<div style="flex:1;min-width:0">' +
+          '<span style="font-size:14px;font-weight:700">' + o.businessName + '</span>' +
+          (o.invoiceNum ? '<span style="font-size:11px;color:#059669;background:#D1FAE5;padding:1px 6px;border-radius:4px;margin-left:6px">' + o.invoiceNum + '</span>' : '') +
+        '</div>' +
+        '<div style="display:flex;gap:8px;align-items:center;flex-shrink:0">' +
+          payBadge(o.payment||'Cash') +
+          (o.billAmount ? '<span style="font-size:13px;font-weight:600;color:#1F4E79">P' + o.billAmount + '</span>' : '') +
+          (o.driver ? '<span style="font-size:12px;font-weight:600;color:#7C3AED;background:#EDE9FE;padding:2px 8px;border-radius:20px">' + o.driver + '</span>' : '') +
+          (waitMins > 0 ? '<span style="font-size:11px;font-weight:700;color:' + urgColor + '">' + waitMins + ' min</span>' : '') +
+        '</div>' +
+      '</div>';
+    }
+
+    // Unassigned — red
+    if(unassigned.length) {
+      html += '<div class="section-label" style="color:#DC2626;background:#FEF2F2;border-radius:6px;padding:6px 10px;margin-bottom:8px">⚠ UNASSIGNED (' + unassigned.length + ')</div>';
       html += '<div style="display:grid;gap:8px;margin-bottom:16px">';
-      pendingOrds.forEach(function(o) {
-        var waitMins = 0;
-        if(o.createdTime) {
-          var ct = o.createdTime.split(':');
-          var ctMins = parseInt(ct[0])*60 + parseInt(ct[1]);
-          waitMins = nowMins - ctMins;
-          if(waitMins < 0) waitMins = 0;
-        }
-        var urgColor = waitMins >= 60 ? '#DC2626' : waitMins >= 30 ? '#F59E0B' : '#64748B';
-        var urgBg    = waitMins >= 60 ? '#FEF2F2' : waitMins >= 30 ? '#FFFBEB' : '#fff';
-        html += '<div style="background:' + urgBg + ';border:1px solid #E2E8F0;border-left:3px solid ' + urgColor + ';border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
-          '<div style="flex:1;min-width:0">' +
-            '<span style="font-size:14px;font-weight:700">' + o.businessName + '</span>' +
-            (o.invoiceNum ? '<span style="font-size:11px;color:#059669;background:#D1FAE5;padding:1px 6px;border-radius:4px;margin-left:6px">' + o.invoiceNum + '</span>' : '') +
-          '</div>' +
-          '<div style="display:flex;gap:8px;align-items:center;flex-shrink:0">' +
-            payBadge(o.payment||'Cash') +
-            (o.billAmount ? '<span style="font-size:13px;font-weight:600;color:#1F4E79">P' + o.billAmount + '</span>' : '') +
-            (o.driver ? '<span style="font-size:12px;font-weight:600;color:#7C3AED;background:#EDE9FE;padding:2px 8px;border-radius:20px">' + o.driver + '</span>' : '<span style="font-size:11px;color:#94A3B8">Unassigned</span>') +
-            (waitMins > 0 ? '<span style="font-size:11px;font-weight:700;color:' + urgColor + '">' + waitMins + ' min</span>' : '') +
-          '</div>' +
-        '</div>';
-      });
+      unassigned.forEach(function(o) { html += waitCard(o, '#DC2626', '#FFF7F7'); });
+      html += '</div>';
+    }
+
+    // Assigned, waiting to depart — orange
+    if(waitDepart.length) {
+      html += '<div class="section-label" style="color:#D97706">⏳ Waiting to Depart (' + waitDepart.length + ')</div>';
+      html += '<div style="display:grid;gap:8px;margin-bottom:16px">';
+      waitDepart.forEach(function(o) { html += waitCard(o, '#F59E0B', '#fff'); });
       html += '</div>';
     }
 
