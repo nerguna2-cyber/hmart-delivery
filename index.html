@@ -1666,6 +1666,7 @@ function showNetworkStatus(msg, color) {
               <button onclick="switchVehTab('maintenance')" id="vt-maintenance" class="veh-tab active-vt" style="border-radius:0;border:none">🔧 Maintenance</button>
               <button onclick="switchVehTab('fuel')"        id="vt-fuel"        class="veh-tab" style="border-radius:0;border:none;border-left:1px solid #E2E8F0">⛽ Fuel</button>
               <button onclick="switchVehTab('overview')"    id="vt-overview"    class="veh-tab" style="border-radius:0;border:none;border-left:1px solid #E2E8F0">📊 Overview</button>
+              <button onclick="switchVehTab('history')"     id="vt-history"     class="veh-tab" style="border-radius:0;border:none;border-left:1px solid #E2E8F0">📋 History</button>
             </div>
           </div>
 
@@ -1789,6 +1790,18 @@ function showNetworkStatus(msg, color) {
           </div>
           <div id="avt-overview" style="display:none">
             <div id="av-overview-content"></div>
+          </div>
+          <div id="avt-history" style="display:none">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+              <select id="av-hist-range" onchange="loadVehicleHistory()" style="padding:7px 10px;border:1px solid #D1D5DB;border-radius:7px;font-size:13px">
+                <option value="7">Last 7 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="90">Last 3 months</option>
+                <option value="all">All time</option>
+              </select>
+              <button onclick="loadVehicleHistory()" class="btn-sm-off">&#8635; Refresh</button>
+            </div>
+            <div id="av-history-list"><div class="empty">Loading...</div></div>
           </div>
         </div>
 
@@ -3516,14 +3529,182 @@ async function openVehicleCard(plateOrVehicle) {
 }
 
 function switchVehTab(tab) {
-  ['maintenance','fuel','overview'].forEach(function(t) {
+  ['maintenance','fuel','overview','history'].forEach(function(t) {
     var el = document.getElementById('avt-' + t);
     if(el) el.style.display = t === tab ? 'block' : 'none';
     var btn = document.getElementById('vt-' + t);
     if(btn) btn.classList.toggle('active-vt', t === tab);
   });
-  if(tab === 'fuel'     && _curVehicle) loadVehicleFuelHistory(_curVehicle.plate||_curVehicle.vehicle);
-  if(tab === 'overview' && _curVehicle) loadVehicleOverview(_curVehicle);
+  if(tab === 'fuel'    && _curVehicle) loadVehicleFuelHistory(_curVehicle.plate||_curVehicle.vehicle);
+  if(tab === 'overview'&& _curVehicle) loadVehicleOverview(_curVehicle);
+  if(tab === 'history' && _curVehicle) loadVehicleHistory();
+}
+
+async function loadVehicleHistory() {
+  var el = document.getElementById('av-history-list');
+  if(!el || !_curVehicle) return;
+  el.innerHTML = '<div class="empty">Loading...</div>';
+
+  var fb    = window._fb;
+  var plate = _curVehicle.plate || _curVehicle.vehicle;
+  var rangeEl = document.getElementById('av-hist-range');
+  var days  = rangeEl ? rangeEl.value : '30';
+
+  // Calculate cutoff date
+  var cutoff = '';
+  if(days !== 'all') {
+    var d = new Date();
+    d.setDate(d.getDate() - parseInt(days));
+    cutoff = d.toLocaleDateString('en-CA');
+  }
+
+  // Load runs, fuel, maintenance in parallel
+  var runObj  = await fb.ref('hmart/runs').once('value').then(function(s){return s.val()||{};});
+  var fuelObj = await fb.ref('hmart/fuel').once('value').then(function(s){return s.val()||{};});
+  var pKey    = plate.replace(/\s/g,'_');
+  var mntObj  = await fb.ref('hmart/maintenance/'+pKey).once('value').then(function(s){return s.val()||{};});
+  var chkObj  = await fb.ref('hmart/checklists').once('value').then(function(s){return s.val()||{};});
+
+  // Also check archives
+  var archObj = await fb.ref('hmart/archive').once('value').then(function(s){return s.val()||{};});
+
+  // Collect all events
+  var events = [];
+
+  // Runs
+  var allRuns = fb.objToArr(runObj).filter(function(r){
+    return (r.plate||r.vehicle) === plate && (!cutoff || r.date >= cutoff);
+  });
+  // Add archived runs
+  Object.keys(archObj).forEach(function(archDate) {
+    if(cutoff && archDate < cutoff) return;
+    var arch = archObj[archDate];
+    if(arch.runs) fb.objToArr(arch.runs).forEach(function(r){
+      if((r.plate||r.vehicle) === plate) allRuns.push(r);
+    });
+  });
+  allRuns.forEach(function(r) {
+    if(r.depKm) events.push({
+      date: r.date, time: r.depTime||'00:00', type: 'depart',
+      driver: r.driver, depKm: r.depKm, vehicle: r.vehicle
+    });
+    if(r.arrKm) events.push({
+      date: r.date, time: r.arrTime||'23:59', type: 'arrive',
+      driver: r.driver, depKm: r.depKm, arrKm: r.arrKm,
+      distKm: r.distKm, vehicle: r.vehicle
+    });
+  });
+
+  // Fuel
+  fb.objToArr(fuelObj).forEach(function(f) {
+    if((f.plate||f.vehicle) !== plate) return;
+    if(cutoff && f.date < cutoff) return;
+    events.push({
+      date: f.date, time: f.time||'12:00', type: 'fuel',
+      liters: f.liters, amount: f.amount, odometer: f.odometer,
+      driver: f.driver, station: f.station, kmpl: f.kmpl,
+      flagged: f.flagged
+    });
+  });
+
+  // Maintenance
+  fb.objToArr(mntObj).forEach(function(m) {
+    if(cutoff && m.date < cutoff) return;
+    events.push({
+      date: m.date, time: '00:00', type: 'maintenance',
+      mntType: m.type, cost: m.cost, odometer: m.odometer,
+      nextKm: m.nextKm, notes: m.notes
+    });
+  });
+
+  // Checklists with remarks
+  fb.objToArr(chkObj).forEach(function(c) {
+    if(!c.remarks || !c.remarks.trim()) return;
+    if(cutoff && c.date < cutoff) return;
+    if(c.vehicle && (c.vehicle.indexOf(_curVehicle.vehicle) === -1 && c.vehicle.indexOf(plate) === -1)) return;
+    events.push({
+      date: c.date, time: c.time||'08:00', type: 'remark',
+      driver: c.driver, shift: c.shift, remarks: c.remarks
+    });
+  });
+
+  if(!events.length) {
+    el.innerHTML = '<div class="empty">No history found for this period</div>';
+    return;
+  }
+
+  // Sort by date desc, time desc
+  events.sort(function(a,b) {
+    var d = (b.date||'').localeCompare(a.date||'');
+    if(d !== 0) return d;
+    return (b.time||'').localeCompare(a.time||'');
+  });
+
+  // Group by date
+  var byDate = {};
+  events.forEach(function(e) {
+    if(!byDate[e.date]) byDate[e.date] = [];
+    byDate[e.date].push(e);
+  });
+
+  var typeIcon  = { depart:'🚀', arrive:'🏁', fuel:'⛽', maintenance:'🔧', remark:'📋' };
+  var typeColor = { depart:'#1E40AF', arrive:'#059669', fuel:'#92400E', maintenance:'#DC2626', remark:'#7C3AED' };
+  var typeBg    = { depart:'#EFF6FF', arrive:'#F0FDF4', fuel:'#FFFBEB', maintenance:'#FEF2F2', remark:'#F5F3FF' };
+
+  var html = Object.keys(byDate).sort(function(a,b){return b.localeCompare(a);}).map(function(date) {
+    var dayEvents = byDate[date];
+    // Calculate day's total km
+    var depEvt = dayEvents.filter(function(e){return e.type==='depart';});
+    var arrEvt = dayEvents.filter(function(e){return e.type==='arrive';});
+    var totalKm = arrEvt.reduce(function(s,e){return s+(parseFloat(e.distKm)||0);},0);
+
+    var dayHeader = '<div style="display:flex;align-items:center;gap:8px;margin:14px 0 8px">' +
+      '<div style="font-size:13px;font-weight:800;color:#1F2937">' + date + '</div>' +
+      (totalKm > 0 ? '<div style="font-size:11px;color:#64748B;background:#F1F5F9;padding:2px 8px;border-radius:20px">📏 ' + Math.round(totalKm*10)/10 + ' km</div>' : '') +
+    '</div>';
+
+    var evtHtml = dayEvents.sort(function(a,b){return (a.time||'').localeCompare(b.time||'');}).map(function(e) {
+      var icon  = typeIcon[e.type]  || '•';
+      var color = typeColor[e.type] || '#64748B';
+      var bg    = typeBg[e.type]    || '#F8FAFC';
+      var detail = '';
+
+      if(e.type === 'depart') {
+        detail = (e.driver||'') + ' · Dep: ' + parseFloat(e.depKm||0).toLocaleString() + ' km';
+      } else if(e.type === 'arrive') {
+        detail = (e.driver||'') + ' · Arr: ' + parseFloat(e.arrKm||0).toLocaleString() + ' km' +
+          (e.distKm ? ' <span style="color:#059669;font-weight:700">(+' + Math.round(parseFloat(e.distKm)*10)/10 + ' km)</span>' : '');
+      } else if(e.type === 'fuel') {
+        detail = e.liters + 'L / P' + parseFloat(e.amount||0).toLocaleString() +
+          (e.odometer ? ' · 📍' + parseFloat(e.odometer).toLocaleString() + ' km' : '') +
+          (e.kmpl ? ' · <span style="color:#7C3AED;font-weight:600">⚡' + e.kmpl + ' km/L</span>' : '') +
+          (e.flagged ? ' <span style="color:#DC2626;font-weight:700">⚠ REVIEW</span>' : '') +
+          (e.driver ? ' · ' + e.driver : '') +
+          (e.station ? ' · ' + e.station : '');
+      } else if(e.type === 'maintenance') {
+        detail = e.mntType +
+          (e.cost ? ' · P' + parseFloat(e.cost).toLocaleString() : '') +
+          (e.odometer ? ' · 📍' + parseFloat(e.odometer).toLocaleString() + ' km' : '') +
+          (e.nextKm ? ' · Next: ' + parseFloat(e.nextKm).toLocaleString() + ' km' : '') +
+          (e.notes ? '<br><span style="color:#64748B;font-size:11px">' + e.notes + '</span>' : '');
+      } else if(e.type === 'remark') {
+        detail = (e.driver||'') + ' (' + (e.shift||'') + ') · ' +
+          '<span style="color:#DC2626;font-weight:600">' + e.remarks + '</span>';
+      }
+
+      return '<div style="display:flex;gap:10px;padding:8px 10px;background:' + bg + ';border-radius:8px;margin-bottom:6px;border-left:3px solid ' + color + '">' +
+        '<div style="display:flex;flex-direction:column;align-items:center;gap:2px;min-width:36px">' +
+          '<span style="font-size:16px">' + icon + '</span>' +
+          '<span style="font-size:10px;color:#94A3B8">' + (e.time||'') + '</span>' +
+        '</div>' +
+        '<div style="font-size:12px;color:#374151;flex:1;line-height:1.5">' + detail + '</div>' +
+      '</div>';
+    }).join('');
+
+    return dayHeader + evtHtml;
+  }).join('');
+
+  el.innerHTML = html;
 }
 
 async function populateVehicleSelector() {
