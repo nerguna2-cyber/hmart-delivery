@@ -1624,17 +1624,17 @@ function showNetworkStatus(msg, color) {
       </div>
       <div id="admin-vehicles" class="admin-screen">
 
-        <!-- Fleet overview grid -->
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+        <!-- Header -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <div style="font-size:14px;font-weight:700;color:#1F4E79">Fleet Overview</div>
           <div style="display:flex;gap:8px">
             <button onclick="showAddVehicleForm()" class="btn-blue-off">+ Add Vehicle</button>
-            <button onclick="loadFleetOverview()" class="btn-sm-off">Refresh</button>
+            <button onclick="loadFleetOverview()" class="btn-sm-off">↻ Refresh</button>
           </div>
         </div>
 
-        <!-- Add vehicle form (hidden) -->
-        <div id="av-add-form" style="display:none;background:#F8FAFC;border-radius:10px;padding:14px;margin-bottom:16px;border:1px solid #E2E8F0">
+        <!-- Add vehicle form -->
+        <div id="av-add-form" style="display:none;background:#F8FAFC;border-radius:10px;padding:14px;margin-bottom:12px;border:1px solid #E2E8F0">
           <div style="font-size:13px;font-weight:700;color:#1F4E79;margin-bottom:10px">Add New Vehicle</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
             <input type="text" id="new-veh-name" class="admin-input" placeholder="Name (e.g. LITE ACE)" style="margin:0">
@@ -1646,10 +1646,89 @@ function showNetworkStatus(msg, color) {
           </div>
         </div>
 
-        <!-- Fleet cards grid -->
-        <div id="fleet-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-bottom:20px">
+        <!-- Fleet cards grid — always visible -->
+        <div id="fleet-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:16px">
           <div class="empty">Loading fleet...</div>
         </div>
+
+        <!-- Divider + hint -->
+        <div id="av-hint" style="text-align:center;font-size:12px;color:#94A3B8;padding:12px 0;border-top:1px solid #E2E8F0">
+          ↑ Tap a vehicle to view details
+        </div>
+
+        <!-- Detail panel — updates when card tapped, always stays below grid -->
+        <div id="av-profile" style="display:none;border-top:2px solid #1F4E79;padding-top:16px">
+
+          <!-- Selected vehicle name + tabs -->
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+            <div id="av-profile-title" style="font-size:16px;font-weight:800;color:#1F4E79;flex:1"></div>
+            <div style="display:flex;gap:0;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden">
+              <button onclick="switchVehTab('maintenance')" id="vt-maintenance" class="veh-tab active-vt" style="border-radius:0;border:none">🔧 Maintenance</button>
+              <button onclick="switchVehTab('fuel')"        id="vt-fuel"        class="veh-tab" style="border-radius:0;border:none;border-left:1px solid #E2E8F0">⛽ Fuel</button>
+              <button onclick="switchVehTab('overview')"    id="vt-overview"    class="veh-tab" style="border-radius:0;border:none;border-left:1px solid #E2E8F0">📊 Overview</button>
+            </div>
+          </div>
+
+          <!-- KPI row -->
+          <div id="av-kpi" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px"></div>
+
+          <!-- Alerts -->
+          <div id="av-alerts" style="margin-bottom:14px"></div>
+
+          <!-- Tab content -->
+          <div id="avt-maintenance">
+            <div class="admin-card" style="margin-bottom:10px">
+              <div style="font-size:13px;font-weight:700;color:#1F4E79;margin-bottom:10px">+ Log Maintenance</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+                <div>
+                  <div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Type</div>
+                  <select id="av-mnt-type" style="width:100%;padding:9px;border:1px solid #D1D5DB;border-radius:7px;font-size:13px">
+                    <option>Oil Change</option><option>Tire Replacement</option>
+                    <option>Brake Service</option><option>Battery Replacement</option>
+                    <option>Transmission Service</option><option>Air Filter</option>
+                    <option>Cooling System</option><option>Suspension</option>
+                    <option>Electrical</option><option>Body Repair</option>
+                    <option>General Inspection</option><option>Other</option>
+                  </select>
+                </div>
+                <div>
+                  <div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Date</div>
+                  <input type="date" id="av-mnt-date" style="width:100%;padding:9px;border:1px solid #D1D5DB;border-radius:7px;font-size:13px">
+                </div>
+                <div>
+                  <div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Cost (P)</div>
+                  <input type="number" id="av-mnt-cost" placeholder="e.g. 2500" inputmode="numeric" style="width:100%;padding:9px;border:1px solid #D1D5DB;border-radius:7px;font-size:13px">
+                </div>
+                <div>
+                  <div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Odometer (km)</div>
+                  <input type="number" id="av-mnt-odo" placeholder="e.g. 91500" inputmode="numeric" style="width:100%;padding:9px;border:1px solid #D1D5DB;border-radius:7px;font-size:13px">
+                </div>
+                <div style="grid-column:1/-1">
+                  <div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Next service at (km)</div>
+                  <input type="number" id="av-mnt-next" placeholder="e.g. 96500" inputmode="numeric" style="width:100%;padding:9px;border:1px solid #D1D5DB;border-radius:7px;font-size:13px">
+                </div>
+                <div style="grid-column:1/-1">
+                  <div style="font-size:11px;color:#94A3B8;margin-bottom:3px">Notes</div>
+                  <input type="text" id="av-mnt-notes" placeholder="e.g. Used Shell 10W-40..." style="width:100%;padding:9px;border:1px solid #D1D5DB;border-radius:7px;font-size:13px">
+                </div>
+              </div>
+              <button onclick="saveMaintenanceRecord()" style="width:100%;padding:11px;background:#1F4E79;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">Save Record</button>
+            </div>
+            <div id="av-mnt-list"><div class="empty">No maintenance records yet</div></div>
+          </div>
+
+          <div id="avt-fuel" style="display:none">
+            <div id="av-fuel-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px"></div>
+            <div id="av-fuel-list"><div class="empty">Loading...</div></div>
+          </div>
+
+          <div id="avt-overview" style="display:none">
+            <div id="av-overview-content"></div>
+          </div>
+
+        </div>
+
+      </div>
 
         <!-- Vehicle detail panel (shown when card tapped) -->
         <div id="av-profile" style="display:none;background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:16px">
@@ -3374,9 +3453,10 @@ async function loadFleetOverview() {
       '</div>';
     }
     return '<div onclick="openVehicleCard(\'' + (plate||v.vehicle) + '\')" ' +
-      'style="background:' + statusBg + ';border:1.5px solid ' + statusBorder + ';border-radius:12px;padding:14px;cursor:pointer" ' +
+      'data-plate="' + (plate||v.vehicle) + '" ' +
+      'style="background:' + statusBg + ';border:1.5px solid ' + statusBorder + ';border-radius:12px;padding:14px;cursor:pointer;transition:outline 0.1s" ' +
       'onmouseover="this.style.boxShadow=\'0 4px 12px rgba(0,0,0,0.1)\'" ' +
-      'onmouseout="this.style.boxShadow=\'\'">' +
+      'onmouseout="if(this.style.outline!==\'3px solid rgb(31, 78, 121)\')this.style.boxShadow=\'\'">' +
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">' +
         '<div>' +
           '<div style="font-size:14px;font-weight:800;color:#1F2937">' + v.vehicle + '</div>' +
@@ -3410,6 +3490,16 @@ async function openVehicleCard(plateOrVehicle) {
   if(!veh) return;
   _curVehicle = veh;
 
+  // Highlight selected card, reset others
+  document.querySelectorAll('#fleet-grid > div').forEach(function(card) {
+    var isSelected = card.dataset.plate === plateOrVehicle;
+    card.style.outline = isSelected ? '3px solid #1F4E79' : 'none';
+    card.style.boxShadow = isSelected ? '0 4px 16px rgba(31,78,121,0.2)' : '';
+  });
+
+  // Hide hint, show profile
+  var hintEl = document.getElementById('av-hint');
+  if(hintEl) hintEl.style.display = 'none';
   var profileEl = document.getElementById('av-profile');
   var titleEl   = document.getElementById('av-profile-title');
   if(profileEl) profileEl.style.display = 'block';
@@ -3421,11 +3511,8 @@ async function openVehicleCard(plateOrVehicle) {
   var dateEl = document.getElementById('av-mnt-date');
   if(dateEl && !dateEl.value) dateEl.value = window._fb.todayStr();
 
-  // Scroll to profile
-  profileEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-  await Promise.all([loadVehicleKpi(veh), loadMaintenanceHistory(veh.plate||veh.vehicle)]);
   switchVehTab('maintenance');
+  await Promise.all([loadVehicleKpi(veh), loadMaintenanceHistory(veh.plate||veh.vehicle)]);
 }
 
 function switchVehTab(tab) {
