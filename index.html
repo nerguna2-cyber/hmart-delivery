@@ -3538,20 +3538,17 @@ function printVehicleHistory() {
   var rangeEl = document.getElementById('av-hist-range');
   var range = rangeEl ? rangeEl.options[rangeEl.selectedIndex].text : '';
   var printWin = window.open('', '_blank');
-  printWin.document.write('<!DOCTYPE html><html><head><title>' + vName + ' History</title>' +
-    '<style>* {-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
-    'body{font-family:Arial,sans-serif;padding:20px;font-size:13px}' +
-    'h2{color:#1F4E79;margin-bottom:4px}' +
-    '.day{font-weight:800;font-size:14px;margin:14px 0 6px;border-bottom:2px solid #1F4E79;padding-bottom:4px;color:#1F4E79}' +
-    '.row{display:flex;gap:12px;padding:7px 10px;margin-bottom:4px;border-radius:5px;align-items:flex-start}' +
-    '.time{font-size:11px;color:#64748B;min-width:38px}' +
-    '.icon{font-size:14px;min-width:20px}' +
-    '.detail{flex:1;font-size:12px;color:#374151}' +
-    '@page{margin:15mm;size:A4}' +
-    '@media print{button{display:none}}' +
+  printWin.document.write('<!DOCTYPE html><html><head><title>' + vName + ' — Vehicle History</title>' +
+    '<style>' +
+    '* {-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}' +
+    'body{font-family:Arial,sans-serif;padding:24px;font-size:13px;color:#1F2937}' +
+    'h2{color:#1F4E79;margin:0 0 4px}' +
+    '.subtitle{color:#64748B;font-size:12px;margin-bottom:20px}' +
+    '@page{margin:12mm;size:A4}' +
+    '@media print{button{display:none!important}.no-print{display:none!important}}' +
     '</style></head><body>' +
     '<h2>' + vName + '</h2>' +
-    '<p style="color:#64748B;margin-bottom:16px">Vehicle History · ' + range + ' · Printed: ' + new Date().toLocaleString() + '</p>' +
+    '<div class="subtitle">Vehicle History · ' + range + ' · Printed: ' + new Date().toLocaleString() + '</div>' +
     listEl.innerHTML +
     '<script>window.onload=function(){window.print();}<\/script>' +
     '</body></html>');
@@ -3654,83 +3651,139 @@ async function loadVehicleHistory() {
   });
 
   if(!events.length) {
-    el.innerHTML = '<div class="empty">No history found for this period</div>';
+    el.innerHTML = '<div class="empty" style="padding:40px;text-align:center">No history found for this period<br><span style="font-size:12px;color:#94A3B8">Try selecting a longer date range</span></div>';
     return;
   }
 
-  // Sort by date desc, time desc
+  // Sort by date asc, time asc for proper timeline
   events.sort(function(a,b) {
-    var d = (b.date||'').localeCompare(a.date||'');
+    var d = (a.date||'').localeCompare(b.date||'');
     if(d !== 0) return d;
-    return (b.time||'').localeCompare(a.time||'');
+    return (a.time||'').localeCompare(b.time||'');
   });
 
   // Group by date
   var byDate = {};
+  var dateOrder = [];
   events.forEach(function(e) {
-    if(!byDate[e.date]) byDate[e.date] = [];
+    if(!byDate[e.date]) { byDate[e.date] = []; dateOrder.push(e.date); }
     byDate[e.date].push(e);
   });
 
-  var typeIcon  = { depart:'🚀', arrive:'🏁', fuel:'⛽', maintenance:'🔧', remark:'📋' };
-  var typeColor = { depart:'#1E40AF', arrive:'#059669', fuel:'#92400E', maintenance:'#DC2626', remark:'#7C3AED' };
-  var typeBg    = { depart:'#EFF6FF', arrive:'#F0FDF4', fuel:'#FFFBEB', maintenance:'#FEF2F2', remark:'#F5F3FF' };
-
-  var html = Object.keys(byDate).sort(function(a,b){return b.localeCompare(a);}).map(function(date) {
+  var html = dateOrder.sort(function(a,b){return b.localeCompare(a);}).map(function(date) {
     var dayEvents = byDate[date];
-    // Calculate day's total km
-    var depEvt = dayEvents.filter(function(e){return e.type==='depart';});
-    var arrEvt = dayEvents.filter(function(e){return e.type==='arrive';});
-    var totalKm = arrEvt.reduce(function(s,e){return s+(parseFloat(e.distKm)||0);},0);
 
-    var dayHeader = '<div style="display:flex;align-items:center;gap:8px;margin:14px 0 8px">' +
-      '<div style="font-size:13px;font-weight:800;color:#1F2937">' + date + '</div>' +
-      (totalKm > 0 ? '<div style="font-size:11px;color:#64748B;background:#F1F5F9;padding:2px 8px;border-radius:20px">📏 ' + Math.round(totalKm*10)/10 + ' km</div>' : '') +
-    '</div>';
+    // Day summary stats
+    var runs      = dayEvents.filter(function(e){ return e.type==='arrive' && e.arrKm; });
+    var totalKm   = runs.reduce(function(s,e){ return s+(parseFloat(e.distKm)||0); }, 0);
+    var startKm   = dayEvents.filter(function(e){ return e.type==='depart' && e.depKm; })
+                     .reduce(function(s,e){ var k=parseFloat(e.depKm); return (!s||k<s)?k:s; }, 0);
+    var endKm     = runs.reduce(function(s,e){ var k=parseFloat(e.arrKm); return k>s?k:s; }, 0);
+    var fuelToday = dayEvents.filter(function(e){ return e.type==='fuel'; });
+    var mntToday  = dayEvents.filter(function(e){ return e.type==='maintenance'; });
+    var drivers   = [...new Set(dayEvents.filter(function(e){ return e.driver; }).map(function(e){ return e.driver; }))];
 
-    var evtHtml = dayEvents.sort(function(a,b){return (a.time||'').localeCompare(b.time||'');}).map(function(e) {
-      var icon  = typeIcon[e.type]  || '•';
-      var color = typeColor[e.type] || '#64748B';
-      var bg    = typeBg[e.type]    || '#F8FAFC';
-      var detail = '';
+    // Format date nicely
+    var dateObj = new Date(date + 'T00:00:00');
+    var dateFmt = dateObj.toLocaleDateString('en-US', { weekday:'short', year:'numeric', month:'short', day:'numeric' });
+
+    var dayHtml =
+      // Day header
+      '<div style="background:#1F4E79;color:#fff;padding:10px 14px;border-radius:10px 10px 0 0;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">' +
+        '<div style="font-size:14px;font-weight:800">' + dateFmt + '</div>' +
+        '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
+          (startKm ? '<span style="font-size:11px;background:rgba(255,255,255,0.15);padding:2px 8px;border-radius:20px">Start: ' + parseFloat(startKm).toLocaleString() + ' km</span>' : '') +
+          (endKm   ? '<span style="font-size:11px;background:rgba(255,255,255,0.15);padding:2px 8px;border-radius:20px">End: '   + parseFloat(endKm).toLocaleString()   + ' km</span>' : '') +
+          (totalKm > 0 ? '<span style="font-size:11px;background:rgba(255,255,255,0.2);padding:2px 8px;border-radius:20px;font-weight:700">📏 ' + Math.round(totalKm*10)/10 + ' km</span>' : '') +
+          (drivers.length ? '<span style="font-size:11px;background:rgba(255,255,255,0.15);padding:2px 8px;border-radius:20px">👤 ' + drivers.join(', ') + '</span>' : '') +
+        '</div>' +
+      '</div>' +
+
+      // Events
+      '<div style="border:1px solid #E2E8F0;border-top:none;border-radius:0 0 10px 10px;overflow:hidden">';
+
+    // Render events by type with full detail
+    dayEvents.forEach(function(e, idx) {
+      var isLast = idx === dayEvents.length - 1;
+      var rowBg  = idx % 2 === 0 ? '#fff' : '#F9FAFB';
+
+      var left = '', right = '';
 
       if(e.type === 'depart') {
-        detail = (e.driver||'') + ' · Dep: ' + parseFloat(e.depKm||0).toLocaleString() + ' km';
+        left = '<span style="font-size:18px">🚀</span>';
+        right =
+          '<div style="font-weight:700;font-size:13px;color:#1E40AF">Departed</div>' +
+          '<div style="font-size:12px;color:#374151;margin-top:2px">' +
+            (e.driver ? '<span style="background:#EFF6FF;color:#1F4E79;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-right:6px">' + e.driver + '</span>' : '') +
+            (e.destination && e.destination !== '' ? '<span style="color:#64748B">' + e.destination.replace('🚨 ','') + '</span>' : '') +
+          '</div>' +
+          '<div style="font-size:12px;color:#1E40AF;font-weight:600;margin-top:3px">Odometer: ' + parseFloat(e.depKm||0).toLocaleString() + ' km</div>';
+
       } else if(e.type === 'arrive') {
-        detail = (e.driver||'') + ' · Arr: ' + parseFloat(e.arrKm||0).toLocaleString() + ' km' +
-          (e.distKm ? ' <span style="color:#059669;font-weight:700">(+' + Math.round(parseFloat(e.distKm)*10)/10 + ' km)</span>' : '');
+        left = '<span style="font-size:18px">🏁</span>';
+        right =
+          '<div style="font-weight:700;font-size:13px;color:#059669">Arrived</div>' +
+          '<div style="font-size:12px;color:#374151;margin-top:2px">' +
+            (e.driver ? '<span style="background:#F0FDF4;color:#059669;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-right:6px">' + e.driver + '</span>' : '') +
+            (e.destination && e.destination !== '' ? '<span style="color:#64748B">' + e.destination.replace('🚨 ','') + '</span>' : '') +
+          '</div>' +
+          '<div style="font-size:12px;color:#059669;font-weight:600;margin-top:3px">' +
+            'Odometer: ' + parseFloat(e.arrKm||0).toLocaleString() + ' km' +
+            (e.distKm ? ' <span style="background:#D1FAE5;color:#059669;padding:1px 6px;border-radius:4px;font-size:11px;margin-left:4px">+' + Math.round(parseFloat(e.distKm)*10)/10 + ' km</span>' : '') +
+          '</div>';
+
       } else if(e.type === 'fuel') {
-        detail = e.liters + 'L / P' + parseFloat(e.amount||0).toLocaleString() +
-          (e.odometer ? ' · 📍' + parseFloat(e.odometer).toLocaleString() + ' km' : '') +
-          (e.kmpl ? ' · <span style="color:#7C3AED;font-weight:600">⚡' + e.kmpl + ' km/L</span>' : '') +
-          (e.flagged ? ' <span style="color:#DC2626;font-weight:700">⚠ REVIEW</span>' : '') +
-          (e.driver ? ' · ' + e.driver : '') +
-          (e.station ? ' · ' + e.station : '');
+        left = '<span style="font-size:18px">⛽</span>';
+        right =
+          '<div style="font-weight:700;font-size:13px;color:#92400E">Fuel Log</div>' +
+          '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px">' +
+            '<span style="font-size:13px;font-weight:700;color:#1F2937">' + (e.liters||'-') + ' L</span>' +
+            '<span style="font-size:13px;font-weight:700;color:#059669">P' + parseFloat(e.amount||0).toLocaleString() + '</span>' +
+            (e.odometer ? '<span style="font-size:12px;color:#64748B">📍 ' + parseFloat(e.odometer).toLocaleString() + ' km</span>' : '') +
+            (e.kmpl ? '<span style="font-size:12px;color:#7C3AED;font-weight:600">⚡ ' + e.kmpl + ' km/L</span>' : '') +
+          '</div>' +
+          '<div style="font-size:11px;color:#64748B;margin-top:3px">' +
+            (e.station ? e.station : '') +
+            (e.driver  ? (e.station ? ' · ' : '') + e.driver : '') +
+            (e.flagged ? ' <span style="color:#DC2626;font-weight:700">⚠ FLAGGED</span>' : '') +
+          '</div>';
+
       } else if(e.type === 'maintenance') {
-        detail = e.mntType +
-          (e.cost ? ' · P' + parseFloat(e.cost).toLocaleString() : '') +
-          (e.odometer ? ' · 📍' + parseFloat(e.odometer).toLocaleString() + ' km' : '') +
-          (e.nextKm ? ' · Next: ' + parseFloat(e.nextKm).toLocaleString() + ' km' : '') +
-          (e.notes ? '<br><span style="color:#64748B;font-size:11px">' + e.notes + '</span>' : '');
+        left = '<span style="font-size:18px">🔧</span>';
+        right =
+          '<div style="font-weight:700;font-size:13px;color:#DC2626">' + (e.mntType||'Maintenance') + '</div>' +
+          '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px">' +
+            (e.cost     ? '<span style="font-size:13px;font-weight:700;color:#DC2626">P' + parseFloat(e.cost).toLocaleString() + '</span>' : '') +
+            (e.odometer ? '<span style="font-size:12px;color:#64748B">📍 ' + parseFloat(e.odometer).toLocaleString() + ' km</span>' : '') +
+            (e.nextKm   ? '<span style="font-size:12px;color:#F59E0B;font-weight:600">Next: ' + parseFloat(e.nextKm).toLocaleString() + ' km</span>' : '') +
+          '</div>' +
+          (e.notes ? '<div style="font-size:11px;color:#64748B;margin-top:3px;font-style:italic">' + e.notes + '</div>' : '');
+
       } else if(e.type === 'remark') {
-        detail = (e.driver||'') + ' (' + (e.shift||'') + ') · ' +
-          '<span style="color:#DC2626;font-weight:600">' + e.remarks + '</span>';
+        left = '<span style="font-size:18px">📋</span>';
+        right =
+          '<div style="font-weight:700;font-size:13px;color:#7C3AED">Driver Remark</div>' +
+          '<div style="font-size:12px;color:#DC2626;font-weight:600;margin-top:3px">' + e.remarks + '</div>' +
+          '<div style="font-size:11px;color:#64748B;margin-top:2px">' + (e.driver||'') + (e.shift ? ' · ' + e.shift + ' shift' : '') + '</div>';
       }
 
-      return '<div style="display:flex;gap:10px;padding:8px 10px;background:' + bg + ';border-radius:8px;margin-bottom:6px;border-left:3px solid ' + color + '">' +
-        '<div style="display:flex;flex-direction:column;align-items:center;gap:2px;min-width:36px">' +
-          '<span style="font-size:16px">' + icon + '</span>' +
-          '<span style="font-size:10px;color:#94A3B8">' + (e.time||'') + '</span>' +
-        '</div>' +
-        '<div style="font-size:12px;color:#374151;flex:1;line-height:1.5">' + detail + '</div>' +
-      '</div>';
-    }).join('');
+      dayHtml +=
+        '<div style="display:flex;gap:12px;padding:12px 14px;background:' + rowBg + ';border-bottom:' + (isLast?'none':'1px solid #F1F5F9') + ';align-items:flex-start">' +
+          '<div style="min-width:44px;display:flex;flex-direction:column;align-items:center;gap:2px">' +
+            left +
+            '<span style="font-size:10px;color:#94A3B8;font-weight:600;white-space:nowrap">' + (e.time||'') + '</span>' +
+          '</div>' +
+          '<div style="flex:1;min-width:0">' + right + '</div>' +
+        '</div>';
+    });
 
-    return dayHeader + evtHtml;
+    dayHtml += '</div>';
+    return '<div style="margin-bottom:16px">' + dayHtml + '</div>';
   }).join('');
 
   el.innerHTML = html;
 }
+
 
 async function populateVehicleSelector() {
   var sel = document.getElementById('av-selector');
