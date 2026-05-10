@@ -1478,8 +1478,7 @@ function showNetworkStatus(msg, color) {
           <div class="off-card">
             <div class="card-title">Driver Schedules</div>
             <div style="font-size:12px;color:#64748B;margin-bottom:10px">
-              Duty On 입력 후 <kbd style="background:#F1F5F9;border:1px solid #D1D5DB;border-radius:3px;padding:1px 5px;font-size:11px">Tab</kbd> → 다음 드라이버로 이동. 
-              Break/Duty Off은 자동 계산됩니다.
+              Enter Duty On time, press <kbd style="background:#F1F5F9;border:1px solid #D1D5DB;border-radius:3px;padding:1px 5px;font-size:11px">Enter</kbd> to move to next driver. Break/Duty Off auto-calculated.
             </div>
             <div id="att-driver-table"><div class="empty">Loading...</div></div>
             <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
@@ -5850,10 +5849,8 @@ function buildAttDriverTable() {
       '<th style="padding:8px 10px;text-align:left;border:1px solid #E2E8F0;font-weight:600">Notes</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 
-  // Focus first driver
+  // Set save button id for keyboard nav
   setTimeout(function() {
-    var first = document.getElementById('sc-ci-' + DRIVERS[0]);
-    if(first) first.focus();
     var saveBtn = document.querySelector('[onclick="saveAllOverrides()"]');
     if(saveBtn && !saveBtn.id) saveBtn.id = 'att-save-btn';
   }, 100);
@@ -5923,7 +5920,7 @@ function saveAllOverrides() {
   });
   try { localStorage.setItem('hmart_driver_schedules', JSON.stringify(driverSchedules)); } catch(e) {}
   toast('toast-att', '✅ ' + changed + ' driver schedules saved!', true);
-  loadAttendance();
+  renderGantt(); // Just refresh the gantt, don't rebuild the whole table
 }
 
 async function loadBreakLog() {
