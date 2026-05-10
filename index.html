@@ -6132,7 +6132,9 @@ function printAttendance() {
 
     if(isDayOff) {
       return '<tr style="background:' + bg + ';opacity:0.5">' +
-        '<td style="padding:8px 10px;border:1px solid #D1D5DB;font-size:14px;font-weight:700;color:#9CA3AF;width:110px">' + d + '</td>' +
+        '<td style="padding:8px 10px;border:1px solid #D1D5DB;font-size:14px;font-weight:700;color:#9CA3AF;width:110px">' +
+          d + (sc.notes ? ' <span style="color:#DC2626;font-size:12px;font-weight:700">(' + sc.notes + ')</span>' : '') +
+        '</td>' +
         '<td style="border:1px solid #D1D5DB;padding:4px;height:48px;background:#F9FAFB"></td>' +
         '<td style="border:1px solid #D1D5DB;padding:8px;text-align:center;color:#9CA3AF">-</td>' +
         '<td style="border:1px solid #D1D5DB;padding:8px;text-align:center;color:#9CA3AF">-</td>' +
@@ -6142,7 +6144,9 @@ function printAttendance() {
 
     if(!sc.dutyon) {
       return '<tr style="background:' + bg + '">' +
-        '<td style="padding:8px 10px;border:1px solid #D1D5DB;font-size:14px;font-weight:700;width:110px">' + d + '</td>' +
+        '<td style="padding:8px 10px;border:1px solid #D1D5DB;font-size:14px;font-weight:700;width:110px">' +
+          d + (sc.notes ? ' <span style="color:#DC2626;font-size:12px;font-weight:700">(' + sc.notes + ')</span>' : '') +
+        '</td>' +
         '<td style="border:1px solid #D1D5DB;padding:4px;height:48px;background:#F9FAFB"></td>' +
         '<td style="border:1px solid #D1D5DB;padding:8px;text-align:center;color:#9CA3AF">-</td>' +
         '<td style="border:1px solid #D1D5DB;padding:8px;text-align:center;color:#9CA3AF">-</td>' +
@@ -6177,8 +6181,8 @@ function printAttendance() {
 
     return '<tr style="background:' + bg + '">' +
       '<td style="border:1px solid #D1D5DB;padding:8px 10px;width:110px">' +
-        '<div style="font-size:14px;font-weight:800;color:#111">' + d + '</div>' +
-        (sc.notes ? '<div style="font-size:11px;color:#DC2626;font-weight:700;margin-top:3px">' + sc.notes + '</div>' : '') +
+        '<span style="font-size:14px;font-weight:800;color:#111">' + d + '</span>' +
+        (sc.notes ? ' <span style="font-size:12px;color:#DC2626;font-weight:700">(' + sc.notes + ')</span>' : '') +
       '</td>' +
       barHtml +
       '<td style="border:1px solid #D1D5DB;padding:8px;text-align:center;font-size:14px;font-weight:700;width:55px">' + sc.dutyon + '</td>' +
