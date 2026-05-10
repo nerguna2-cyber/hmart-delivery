@@ -1461,6 +1461,19 @@ function showNetworkStatus(msg, color) {
     <!-- ATTENDANCE TAB -->
     <div id="tab-attendance" class="off-screen">
       <div id="toast-att" class="toast"></div>
+
+      <!-- Gantt Chart — always on top -->
+      <div class="off-card" id="att-gantt-card" style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div style="font-size:13px;font-weight:700;color:#1F4E79">Driver Schedule Overview</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button onclick="printAttendance()" style="padding:6px 12px;font-size:12px;font-weight:600;background:#374151;color:#fff;border:none;border-radius:6px;cursor:pointer">🖨 Print</button>
+            <button onclick="renderGantt()" class="btn-sm-off">↻</button>
+          </div>
+        </div>
+        <div id="att-gantt"></div>
+      </div>
+
       <div style="display:grid;grid-template-columns:560px 1fr;gap:20px">
         <div>
           <div class="off-card">
@@ -3950,6 +3963,98 @@ async function addVehicle() {
   }
 }
 
+// ---- GANTT CHART ----
+function renderGantt() {
+  var el = document.getElementById('att-gantt');
+  if(!el) return;
+
+  var nowH    = new Date().getHours();
+  var nowM    = new Date().getMinutes();
+  var nowMins = nowH*60 + nowM;
+  var startH  = 6, endH = 23, totalH = endH - startH;
+  var hours   = [];
+  for(var h = startH; h <= endH; h++) hours.push(h);
+
+  var nowPct = Math.min(100, Math.max(0, ((nowMins - startH*60) / (totalH*60)) * 100));
+
+  var headerHtml = hours.map(function(h) {
+    return '<div style="flex:1;text-align:center;font-size:11px;font-weight:600;color:#64748B;min-width:0">' +
+      (h < 10 ? '0'+h : h) + '</div>';
+  }).join('');
+
+  var rowsHtml = DRIVERS.map(function(d) {
+    var sc       = getDriverSched(d);
+    var isDayOff = sc.dayOff;
+    var actualB  = actualBreaks[d] || null;
+
+    if(isDayOff) {
+      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;opacity:0.4">' +
+        '<div style="width:72px;font-size:12px;font-weight:700;color:#94A3B8;flex-shrink:0;text-align:right;padding-right:8px">⚫ ' + d + '</div>' +
+        '<div style="flex:1;height:26px;background:#F1F5F9;border-radius:4px;display:flex;align-items:center;justify-content:center"><span style="font-size:10px;color:#94A3B8">Day Off</span></div>' +
+      '</div>';
+    }
+    if(!sc.dutyon) {
+      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">' +
+        '<div style="width:72px;font-size:12px;font-weight:700;color:#94A3B8;flex-shrink:0;text-align:right;padding-right:8px">⚪ ' + d + '</div>' +
+        '<div style="flex:1;height:26px;background:#F8FAFC;border-radius:4px;border:1px dashed #E2E8F0;display:flex;align-items:center;justify-content:center"><span style="font-size:10px;color:#CBD5E1">No schedule</span></div>' +
+      '</div>';
+    }
+
+    var onH  = parseInt(sc.dutyon.split(':')[0]);
+    var offH = sc.dutyoff  ? parseInt(sc.dutyoff.split(':')[0])              : onH + 9;
+    var brkH = (actualB||sc.breakStart) ? parseInt((actualB||sc.breakStart).split(':')[0]) : onH + 4;
+
+    var onPct   = Math.max(0, ((onH  - startH) / totalH) * 100);
+    var offPct  = Math.min(100, ((offH - startH) / totalH) * 100);
+    var brkPct  = Math.max(0, Math.min(100, ((brkH - startH) / totalH) * 100));
+    var brkWPct = (1/totalH)*100;
+
+    var isOffDuty = nowMins >= offH*60;
+    var isOnBreak = !isOffDuty && nowMins >= brkH*60 && nowMins < (brkH+1)*60;
+    var isOnDuty  = !isOffDuty && !isOnBreak && nowMins >= onH*60;
+    var notYet    = nowMins < onH*60;
+
+    var barColor  = isOffDuty ? '#94A3B8' : '#1F4E79';
+    var nameColor = isOffDuty ? '#94A3B8' : isOnDuty ? '#1F4E79' : '#374151';
+    var dot       = isOffDuty ? '⚫' : isOnBreak ? '🟡' : isOnDuty ? '🟢' : '⚪';
+
+    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">' +
+      '<div style="width:72px;font-size:12px;font-weight:700;color:' + nameColor + ';flex-shrink:0;text-align:right;padding-right:8px;white-space:nowrap">' + dot + ' ' + d + '</div>' +
+      '<div style="flex:1;height:26px;background:#F1F5F9;border-radius:4px;position:relative;overflow:hidden">' +
+        '<div style="position:absolute;left:' + onPct + '%;width:' + (offPct-onPct) + '%;height:100%;background:' + barColor + ';opacity:' + (isOffDuty?'0.3':'0.8') + ';border-radius:3px"></div>' +
+        '<div style="position:absolute;left:' + brkPct + '%;width:' + brkWPct + '%;height:100%;background:#F59E0B;opacity:0.9" title="Break ' + (actualB||sc.breakStart||'') + '"></div>' +
+        '<div style="position:absolute;inset:0;display:flex;align-items:center;pointer-events:none">' +
+          '<span style="position:absolute;left:calc(' + onPct + '% + 4px);font-size:9px;font-weight:700;color:#fff">' + sc.dutyon + '</span>' +
+          '<span style="position:absolute;right:calc(' + (100-offPct) + '% + 4px);font-size:9px;font-weight:700;color:#fff">' + sc.dutyoff + '</span>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  el.innerHTML =
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+      '<div style="width:72px;flex-shrink:0"></div>' +
+      '<div style="flex:1;display:flex">' + headerHtml + '</div>' +
+    '</div>' +
+    '<div style="position:relative">' +
+      '<div style="position:absolute;top:0;left:80px;right:0;bottom:0;display:flex;pointer-events:none;z-index:0">' +
+        hours.map(function(h,i){ return '<div style="flex:1;border-left:1px solid ' + (i===0?'transparent':'#E2E8F0') + '"></div>'; }).join('') +
+      '</div>' +
+      rowsHtml +
+      '<div style="position:absolute;top:-20px;bottom:0;left:calc(80px + ' + nowPct + '%);width:2px;background:#DC2626;z-index:10;pointer-events:none">' +
+        '<div style="position:absolute;top:0;left:50%;transform:translateX(-50%);background:#DC2626;color:#fff;font-size:9px;font-weight:800;padding:2px 5px;border-radius:3px;white-space:nowrap">' +
+          (nowH<10?'0'+nowH:nowH)+':'+(nowM<10?'0'+nowM:nowM) +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap;font-size:11px;color:#64748B">' +
+      '<span>■ <span style="color:#1F4E79;font-weight:600">On Duty</span></span>' +
+      '<span>■ <span style="color:#F59E0B;font-weight:600">Break</span></span>' +
+      '<span>| <span style="color:#DC2626;font-weight:600">Now</span></span>' +
+      '<span>🟢 Working &nbsp;🟡 Break &nbsp;⚫ Off</span>' +
+    '</div>';
+}
+
 // ---- DRIVER BREAK TIME ----
 function getDriverStatusLabel(d) {
   var sched  = getDriverSched(d);
@@ -5848,6 +5953,7 @@ function calcHours(start, end) {
 function loadAttendance() {
   buildAttDriverTable();
   loadBreakLog();
+  renderGantt();
   var dateEl = document.getElementById('att-date');
   var selDate = new Date().toISOString().slice(0,10);
   if(dateEl) {
@@ -5957,24 +6063,115 @@ function loadAttendance() {
 
 function printAttendance() {
   var today = new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
-  document.getElementById('att-print-date').textContent = today;
-  document.getElementById('att-print-gen').textContent = new Date().toLocaleString();
-  var tbody = document.getElementById('att-print-body');
-  tbody.innerHTML = DRIVERS.map(function(d, i) {
+
+  // Build a clean print-optimized version of the gantt
+  var startH = 6, endH = 23, totalH = endH - startH;
+  var hours = [];
+  for(var h = startH; h <= endH; h++) hours.push(h);
+
+  var nowH = new Date().getHours();
+  var nowM = new Date().getMinutes();
+  var nowPct = Math.min(100,Math.max(0,((nowH*60+nowM-startH*60)/(totalH*60))*100));
+
+  var rowsHtml = DRIVERS.map(function(d, idx) {
     var sc = getDriverSched(d);
-    var bg = i % 2 === 0 ? '#fff' : '#F8FAFC';
+    var isDayOff = sc.dayOff;
+    var actualB  = actualBreaks[d] || null;
+    var bg = idx % 2 === 0 ? '#fff' : '#F9FAFB';
+
+    if(isDayOff) {
+      return '<tr style="background:' + bg + '">' +
+        '<td style="padding:10px 12px;border:1px solid #D1D5DB;font-size:14px;font-weight:700;color:#9CA3AF;width:90px">'+d+'</td>' +
+        '<td style="border:1px solid #D1D5DB;padding:4px;text-align:center;color:#9CA3AF;font-size:13px">Day Off</td>' +
+        '<td style="border:1px solid #D1D5DB;padding:10px;width:60px;text-align:center;font-size:13px;color:#9CA3AF">-</td>' +
+        '<td style="border:1px solid #D1D5DB;padding:10px;width:60px;text-align:center;font-size:13px;color:#9CA3AF">-</td>' +
+        '<td style="border:1px solid #D1D5DB;padding:10px;width:60px;text-align:center;font-size:13px;color:#9CA3AF">-</td>' +
+      '</tr>';
+    }
+
+    if(!sc.dutyon) {
+      return '<tr style="background:' + bg + '">' +
+        '<td style="padding:10px 12px;border:1px solid #D1D5DB;font-size:14px;font-weight:700">'+d+'</td>' +
+        '<td style="border:1px solid #D1D5DB;padding:4px;text-align:center;color:#9CA3AF;font-size:13px">No schedule</td>' +
+        '<td style="border:1px solid #D1D5DB;padding:10px;width:60px;text-align:center">-</td>' +
+        '<td style="border:1px solid #D1D5DB;padding:10px;width:60px;text-align:center">-</td>' +
+        '<td style="border:1px solid #D1D5DB;padding:10px;width:60px;text-align:center">-</td>' +
+      '</tr>';
+    }
+
+    var onH  = parseInt(sc.dutyon.split(':')[0]);
+    var offH = sc.dutyoff  ? parseInt(sc.dutyoff.split(':')[0])  : onH+9;
+    var brkH = (actualB||sc.breakStart) ? parseInt((actualB||sc.breakStart).split(':')[0]) : onH+4;
+
+    var onPct  = Math.max(0,((onH-startH)/totalH)*100);
+    var offPct = Math.min(100,((offH-startH)/totalH)*100);
+    var brkPct = Math.max(0,Math.min(100,((brkH-startH)/totalH)*100));
+    var brkWPct = (1/totalH)*100;
+
+    var barHtml = '<td style="border:1px solid #D1D5DB;padding:4px;position:relative;height:40px">' +
+      '<div style="position:relative;height:100%;background:#F3F4F6;border-radius:3px;overflow:hidden">' +
+        '<div style="position:absolute;left:' + onPct + '%;width:' + (offPct-onPct) + '%;height:100%;background:#1F4E79;border-radius:2px;opacity:0.85"></div>' +
+        '<div style="position:absolute;left:' + brkPct + '%;width:' + brkWPct + '%;height:100%;background:#F59E0B"></div>' +
+        '<div style="position:absolute;top:50%;left:calc(' + nowPct + '% - 1px);width:2px;height:100%;background:#DC2626;transform:translateY(-50%)"></div>' +
+        '<span style="position:absolute;left:calc(' + onPct + '% + 3px);top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;color:#fff">' + sc.dutyon + '</span>' +
+        '<span style="position:absolute;right:calc(' + (100-offPct) + '% + 3px);top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;color:#fff">' + sc.dutyoff + '</span>' +
+      '</div>' +
+    '</td>';
+
     return '<tr style="background:' + bg + '">' +
-      '<td style="padding:10px;border:1px solid #E2E8F0;font-weight:600">' + d + '</td>' +
-      '<td style="padding:10px;border:1px solid #E2E8F0;text-align:center">' + (sc.dutyon||'-') + '</td>' +
-      '<td style="padding:10px;border:1px solid #E2E8F0;text-align:center;background:#FEF3C7">' + (sc.breakStart||'-') + '</td>' +
-      '<td style="padding:10px;border:1px solid #E2E8F0;text-align:center">' + (sc.dutyoff||'-') + '</td>' +
-      '<td style="padding:10px;border:1px solid #E2E8F0">' + (sc.notes||'') + '</td>' +
-      '<td style="padding:10px;border:1px solid #E2E8F0;width:100px"></td>' +
+      '<td style="padding:10px 12px;border:1px solid #D1D5DB;font-size:14px;font-weight:700">'+d+'</td>' +
+      barHtml +
+      '<td style="border:1px solid #D1D5DB;padding:10px;text-align:center;font-size:14px;font-weight:600;width:60px">' + sc.dutyon + '</td>' +
+      '<td style="border:1px solid #D1D5DB;padding:10px;text-align:center;font-size:14px;width:60px;background:#FFFBEB;font-weight:600">' + (actualB||sc.breakStart||'-') + '</td>' +
+      '<td style="border:1px solid #D1D5DB;padding:10px;text-align:center;font-size:14px;font-weight:600;width:60px">' + sc.dutyoff + '</td>' +
     '</tr>';
   }).join('');
-  document.getElementById('att-print-area').style.display = 'block';
-  window.print();
-  setTimeout(function() { document.getElementById('att-print-area').style.display = 'none'; }, 1000);
+
+  var hourHeader = '<tr style="background:#1F4E79">' +
+    '<th style="padding:10px 12px;color:#fff;font-size:13px;text-align:left;border:1px solid #1F4E79;width:90px">Driver</th>' +
+    '<th style="padding:8px;color:#fff;font-size:12px;border:1px solid #1F4E79;position:relative">' +
+      '<div style="display:flex;width:100%">' +
+        hours.map(function(h){
+          return '<div style="flex:1;text-align:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.85)">' + (h<10?'0'+h:h) + '</div>';
+        }).join('') +
+      '</div>' +
+    '</th>' +
+    '<th style="padding:10px;color:#fff;font-size:12px;border:1px solid #1F4E79;text-align:center;width:60px">On</th>' +
+    '<th style="padding:10px;color:#fff;font-size:12px;border:1px solid #1F4E79;text-align:center;width:60px;background:#92400E">Break</th>' +
+    '<th style="padding:10px;color:#fff;font-size:12px;border:1px solid #1F4E79;text-align:center;width:60px">Off</th>' +
+  '</tr>';
+
+  var printWin = window.open('', '_blank');
+  printWin.document.write('<!DOCTYPE html><html><head><title>Driver Schedule — ' + today + '</title>' +
+    '<style>' +
+    'body{font-family:Arial,sans-serif;padding:20px;max-width:900px;margin:0 auto}' +
+    'table{width:100%;border-collapse:collapse}' +
+    '@page{margin:12mm;size:A4 landscape}' +
+    '@media print{button{display:none}}' +
+    '</style></head><body>' +
+    '<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px;border-bottom:2px solid #1F4E79;padding-bottom:10px">' +
+      '<div>' +
+        '<div style="font-size:22px;font-weight:800;color:#1F4E79">H Mart — Driver Schedule</div>' +
+        '<div style="font-size:14px;color:#64748B;margin-top:4px">' + today + '</div>' +
+      '</div>' +
+      '<div style="text-align:right;font-size:12px;color:#64748B">' +
+        'Printed: ' + new Date().toLocaleTimeString() + '<br>' +
+        '<span style="display:inline-block;margin-top:4px;font-size:11px">' +
+          '<span style="background:#1F4E79;color:#fff;padding:2px 8px;border-radius:3px;margin-right:6px">■ On Duty</span>' +
+          '<span style="background:#F59E0B;color:#fff;padding:2px 8px;border-radius:3px;margin-right:6px">■ Break</span>' +
+          '<span style="background:#DC2626;color:#fff;padding:2px 8px;border-radius:3px">| Now</span>' +
+        '</span>' +
+      '</div>' +
+    '</div>' +
+    '<table>' + hourHeader + '<tbody>' + rowsHtml + '</tbody></table>' +
+    '<div style="margin-top:16px;border-top:1px solid #E2E8F0;padding-top:10px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">' +
+      DRIVERS.filter(function(d){ return getDriverSched(d).notes; }).map(function(d) {
+        return '<div style="font-size:12px"><strong>' + d + ':</strong> ' + getDriverSched(d).notes + '</div>';
+      }).join('') +
+    '</div>' +
+    '<script>window.onload=function(){window.print();}<\/script>' +
+    '</body></html>');
+  printWin.document.close();
 }
 
 setInterval(function(){
