@@ -5593,6 +5593,10 @@ function renderReport(data) {
     if(!driverMap[d]) driverMap[d] = { runs:0, km:0, orders:0 };
     driverMap[d].runs++;
     driverMap[d].km += parseFloat(r.distKm) || 0;
+    // Emergency/special runs count as 1 order
+    if(r.destination && r.destination.indexOf('🚨') > -1 && r.status === 'COMPLETED') {
+      driverMap[d].orders++;
+    }
   });
   (data.orders || []).forEach(function(o) {
     if(!o.driver) return;
@@ -5717,11 +5721,24 @@ function renderReport(data) {
     html += '</tbody></table></div></div>';
   }
 
-  // Delivery Details
-  if((data.orders||[]).length) {
-    html += '<div class="report-section"><div class="report-title">Delivery Details</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>#</th><th>Business</th><th>Invoice</th><th>Driver</th><th>Payment</th><th>Amount</th><th>Change</th><th>Status</th><th>Time</th></tr></thead><tbody>';
-    data.orders.forEach(function(o, idx) {
-      html += '<tr><td>' + (idx+1) + '</td><td><strong>' + o.businessName + '</strong></td><td>' + (o.invoiceNum||'-') + '</td><td>' + (o.driver||'-') + '</td><td>' + o.payment + '</td><td>' + (o.billAmount ? 'P' + Math.round(o.billAmount).toLocaleString() : '-') + '</td><td>' + (o.change && o.payment==='Cash' ? 'P' + o.change : '-') + '</td><td>' + o.status + '</td><td>' + (o.completeTime||'-') + '</td></tr>';
+  // Delivery Details — orders + emergency runs
+  var emergRuns = (data.runs||[]).filter(function(r){
+    return r.destination && r.destination.indexOf('🚨') > -1;
+  });
+  if((data.orders||[]).length || emergRuns.length) {
+    html += '<div class="report-section"><div class="report-title">Delivery Details</div><div style="overflow-x:auto"><table class="report-table" style="min-width:500px;font-size:12px"><thead><tr><th>#</th><th>Business / Type</th><th>Invoice</th><th>Driver</th><th>Payment</th><th>Amount</th><th>Change</th><th>Status</th><th>Time</th></tr></thead><tbody>';
+    var rowNum = 1;
+    data.orders.forEach(function(o) {
+      html += '<tr><td>' + rowNum++ + '</td><td><strong>' + o.businessName + '</strong></td><td>' + (o.invoiceNum||'-') + '</td><td>' + (o.driver||'-') + '</td><td>' + o.payment + '</td><td>' + (o.billAmount ? 'P' + Math.round(o.billAmount).toLocaleString() : '-') + '</td><td>' + (o.change && o.payment==='Cash' ? 'P' + o.change : '-') + '</td><td>' + o.status + '</td><td>' + (o.completeTime||'-') + '</td></tr>';
+    });
+    emergRuns.forEach(function(r) {
+      var dest = r.destination.replace('🚨 ','');
+      var dist = r.distKm ? Math.round(parseFloat(r.distKm)*10)/10 + ' km' : '-';
+      html += '<tr style="background:#FFF7F0"><td>' + rowNum++ + '</td>' +
+        '<td><span style="color:#DC2626;font-weight:700">🚨 ' + dest + '</span></td>' +
+        '<td>-</td><td>' + (r.driver||'-') + '</td><td>-</td>' +
+        '<td>' + dist + '</td><td>-</td>' +
+        '<td>' + (r.status||'-') + '</td><td>' + (r.arrTime||r.depTime||'-') + '</td></tr>';
     });
     html += '</tbody></table></div></div>';
   }
