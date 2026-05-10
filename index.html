@@ -189,9 +189,8 @@ html{width:100%;overflow-x:hidden}
 .ok-badge{background:#D1FAE5;color:#059669;font-size:11px;font-weight:600;padding:1px 6px;border-radius:4px}
 @media print{
   body *{visibility:hidden}
-  #print-area,#print-area *,#att-print-area,#att-print-area *{visibility:visible}
+  #print-area,#print-area *{visibility:visible}
   #print-area{position:absolute;top:0;left:0;width:100%;padding:16px;box-sizing:border-box}
-  #att-print-area{position:absolute;top:0;left:0;width:100%;padding:16px;box-sizing:border-box}
   .report-section{box-shadow:none;border:1px solid #E2E8F0;break-inside:avoid;page-break-inside:avoid;margin-bottom:12px}
   .report-table{width:100%;font-size:11px}
   .report-table th,.report-table td{padding:5px 7px}
@@ -1521,26 +1520,6 @@ function showNetworkStatus(msg, color) {
           <div id="att-list"><div class="empty">Loading...</div></div>
         </div>
       </div>
-      <div id="att-print-area" style="display:none">
-        <div style="text-align:center;margin-bottom:16px">
-          <div style="font-size:20px;font-weight:700">H mart</div>
-          <div style="font-size:15px;margin-top:4px">Driver Daily Schedule</div>
-          <div style="font-size:13px;color:#64748B;margin-top:4px" id="att-print-date"></div>
-        </div>
-        <table style="width:100%;border-collapse:collapse;font-size:13px">
-          <thead>
-            <tr style="background:#1F4E79;color:#fff">
-              <th style="padding:10px;text-align:left;border:1px solid #E2E8F0">Driver</th>
-              <th style="padding:10px;text-align:center;border:1px solid #E2E8F0">Duty On</th>
-              <th style="padding:10px;text-align:center;border:1px solid #E2E8F0">Break Start</th>
-              <th style="padding:10px;text-align:center;border:1px solid #E2E8F0">Duty Off</th>
-              <th style="padding:10px;text-align:left;border:1px solid #E2E8F0">Notes</th>
-              <th style="padding:10px;text-align:center;border:1px solid #E2E8F0">Signature</th>
-            </tr>
-          </thead>
-          <tbody id="att-print-body"></tbody>
-        </table>
-        <div style="margin-top:20px;font-size:11px;color:#94A3B8;text-align:center">Generated: <span id="att-print-gen"></span></div>
       </div>
     </div>
 
