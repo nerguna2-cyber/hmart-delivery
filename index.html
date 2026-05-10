@@ -5767,6 +5767,22 @@ function getTimeFieldVal(fieldId) {
   return String(h).padStart(2,'0') + ':00';
 }
 
+function attNavNext(currentDriver) {
+  var idx = DRIVERS.indexOf(currentDriver);
+  for(var ni = idx+1; ni < DRIVERS.length; ni++) {
+    var cb = document.getElementById('sc-do-' + DRIVERS[ni]);
+    var isDayOff = cb ? cb.checked : getDriverSched(DRIVERS[ni]).dayOff;
+    if(!isDayOff) {
+      var nx = document.getElementById('sc-ci-' + DRIVERS[ni]);
+      if(nx) { nx.focus(); nx.select(); }
+      return;
+    }
+  }
+  // Last driver — focus save button
+  var saveBtn = document.getElementById('att-save-btn');
+  if(saveBtn) saveBtn.focus();
+}
+
 function autoFillSchedule(driver) {
   var ciEl = document.getElementById('sc-ci-' + driver);
   var bsEl = document.getElementById('sc-bs-' + driver);
@@ -5798,11 +5814,12 @@ function buildAttDriverTable() {
     var sc = getDriverSched(d);
     var isDayOff = !!(sc.dayOff);
 
-    // Find next non-dayoff driver for Enter navigation
+    // Find next driver for Enter — check live checkbox, not saved schedule
     var nextId = 'att-save-btn';
     for(var ni = idx+1; ni < DRIVERS.length; ni++) {
-      var nsc = getDriverSched(DRIVERS[ni]);
-      if(!nsc.dayOff) { nextId = 'sc-ci-' + DRIVERS[ni]; break; }
+      var nCb = document.getElementById('sc-do-' + DRIVERS[ni]);
+      var nDayOff = nCb ? nCb.checked : getDriverSched(DRIVERS[ni]).dayOff;
+      if(!nDayOff) { nextId = 'sc-ci-' + DRIVERS[ni]; break; }
     }
 
     function toHourNum(hhmm) {
@@ -5823,8 +5840,8 @@ function buildAttDriverTable() {
       '</td>' +
       '<td style="padding:6px 10px;border:1px solid #E2E8F0;text-align:center">' +
         '<input type="number" id="sc-ci-' + d + '" value="' + toHourNum(sc.dutyon) + '" min="0" max="23" placeholder="H" inputmode="numeric" ' + dis +
-          ' oninput="autoFillSchedule(\'' + d + '\')"' +
-          ' onkeydown="if(event.key===\'Enter\'||event.key===\'Tab\'){event.preventDefault();var nx=document.getElementById(\'' + nextId + '\');if(nx){nx.focus();nx.select();}}"' +
+          ' onchange="autoFillSchedule(\'' + d + '\')"' +
+          ' onkeydown="if(event.key===\'Enter\'||event.key===\'Tab\'){event.preventDefault();attNavNext(\'' + d + '\');}"' +
           ' style="' + baseInput + (isDayOff?';opacity:0.4':'') + '">' +
         '<span style="font-size:11px;color:#94A3B8;margin-left:2px">:00</span>' +
       '</td>' +
@@ -5889,16 +5906,17 @@ function toggleDayOff(driver) {
   var cb = document.getElementById('sc-do-' + driver);
   if(!cb) return;
   var isDayOff = cb.checked;
-  // Grey out time inputs
   ['sc-ci-','sc-bs-','sc-co-'].forEach(function(prefix) {
     var el = document.getElementById(prefix + driver);
     if(!el) return;
     el.disabled = isDayOff;
     el.style.opacity = isDayOff ? '0.4' : '1';
   });
-  // Update row background
   var row = cb.closest('tr');
   if(row) row.style.background = isDayOff ? '#FFF5F5' : '';
+  // Update in-memory schedule so Enter navigation reflects current checkbox state
+  if(!driverSchedules[driver]) driverSchedules[driver] = {};
+  driverSchedules[driver].dayOff = isDayOff;
 }
 
 function saveAllOverrides() {
