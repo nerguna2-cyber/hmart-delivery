@@ -6156,13 +6156,13 @@ function printAttendance() {
     var brkPct = Math.max(0,Math.min(100,((brkH-startH)/totalH)*100));
     var brkWPct = (1/totalH)*100;
 
-    var barHtml = '<td style="border:1px solid #D1D5DB;padding:4px;position:relative;height:40px">' +
-      '<div style="position:relative;height:100%;background:#F3F4F6;border-radius:3px;overflow:hidden">' +
-        '<div style="position:absolute;left:' + onPct + '%;width:' + (offPct-onPct) + '%;height:100%;background:#1F4E79;border-radius:2px;opacity:0.85"></div>' +
-        '<div style="position:absolute;left:' + brkPct + '%;width:' + brkWPct + '%;height:100%;background:#F59E0B"></div>' +
-        '<div style="position:absolute;top:50%;left:calc(' + nowPct + '% - 1px);width:2px;height:100%;background:#DC2626;transform:translateY(-50%)"></div>' +
-        '<span style="position:absolute;left:calc(' + onPct + '% + 3px);top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;color:#fff">' + sc.dutyon + '</span>' +
-        '<span style="position:absolute;right:calc(' + (100-offPct) + '% + 3px);top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;color:#fff">' + sc.dutyoff + '</span>' +
+    var barHtml = '<td style="border:1px solid #D1D5DB;padding:4px;position:relative;height:44px">' +
+      '<div style="position:relative;height:100%;background:#F3F4F6;border-radius:3px;overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact">' +
+        '<div style="position:absolute;left:' + onPct + '%;width:' + (offPct-onPct) + '%;height:100%;background:#1E40AF !important;border-radius:2px;-webkit-print-color-adjust:exact;print-color-adjust:exact"></div>' +
+        '<div style="position:absolute;left:' + brkPct + '%;width:' + brkWPct + '%;height:100%;background:#F59E0B !important;-webkit-print-color-adjust:exact;print-color-adjust:exact"></div>' +
+        '<div style="position:absolute;top:50%;left:calc(' + nowPct + '% - 1px);width:2px;height:100%;background:#DC2626 !important;transform:translateY(-50%);-webkit-print-color-adjust:exact;print-color-adjust:exact"></div>' +
+        '<span style="position:absolute;left:calc(' + onPct + '% + 3px);top:50%;transform:translateY(-50%);font-size:12px;font-weight:700;color:#fff">' + sc.dutyon + '</span>' +
+        '<span style="position:absolute;right:calc(' + (100-offPct) + '% + 3px);top:50%;transform:translateY(-50%);font-size:12px;font-weight:700;color:#fff">' + sc.dutyoff + '</span>' +
       '</div>' +
     '</td>';
 
@@ -6192,9 +6192,10 @@ function printAttendance() {
   var printWin = window.open('', '_blank');
   printWin.document.write('<!DOCTYPE html><html><head><title>Driver Schedule — ' + today + '</title>' +
     '<style>' +
-    'body{font-family:Arial,sans-serif;padding:20px;max-width:900px;margin:0 auto}' +
+    '* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }' +
+    'body{font-family:Arial,sans-serif;padding:20px;max-width:1000px;margin:0 auto}' +
     'table{width:100%;border-collapse:collapse}' +
-    '@page{margin:12mm;size:A4 landscape}' +
+    '@page{margin:10mm;size:A4 landscape}' +
     '@media print{button{display:none}}' +
     '</style></head><body>' +
     '<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px;border-bottom:2px solid #1F4E79;padding-bottom:10px">' +
