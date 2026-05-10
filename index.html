@@ -5840,8 +5840,8 @@ function buildAttDriverTable() {
       '</td>' +
       '<td style="padding:6px 10px;border:1px solid #E2E8F0;text-align:center">' +
         '<input type="number" id="sc-ci-' + d + '" value="' + toHourNum(sc.dutyon) + '" min="0" max="23" placeholder="H" inputmode="numeric" ' + dis +
-          ' onchange="autoFillSchedule(\'' + d + '\')"' +
-          ' onkeydown="if(event.key===\'Enter\'||event.key===\'Tab\'){event.preventDefault();attNavNext(\'' + d + '\');}"' +
+          ' oninput="clearTimeout(this._t);this._t=setTimeout(function(){autoFillSchedule(\'' + d + '\');},300)"' +
+          ' onkeydown="if(event.key===\'Enter\'||event.key===\'Tab\'){event.preventDefault();autoFillSchedule(\'' + d + '\');attNavNext(\'' + d + '\');}"' +
           ' style="' + baseInput + (isDayOff?';opacity:0.4':'') + '">' +
         '<span style="font-size:11px;color:#94A3B8;margin-left:2px">:00</span>' +
       '</td>' +
@@ -5906,17 +5906,29 @@ function toggleDayOff(driver) {
   var cb = document.getElementById('sc-do-' + driver);
   if(!cb) return;
   var isDayOff = cb.checked;
+  var row = cb.closest('tr');
+
   ['sc-ci-','sc-bs-','sc-co-'].forEach(function(prefix) {
     var el = document.getElementById(prefix + driver);
     if(!el) return;
     el.disabled = isDayOff;
     el.style.opacity = isDayOff ? '0.4' : '1';
+    el.style.background = '';
   });
-  var row = cb.closest('tr');
-  if(row) row.style.background = isDayOff ? '#FFF5F5' : '';
-  // Update in-memory schedule so Enter navigation reflects current checkbox state
+
+  if(row) {
+    row.style.background = isDayOff ? '#FFF5F5' : '';
+    row.style.opacity = isDayOff ? '0.7' : '1';
+  }
+
   if(!driverSchedules[driver]) driverSchedules[driver] = {};
   driverSchedules[driver].dayOff = isDayOff;
+
+  // If re-enabled, focus the duty-on input
+  if(!isDayOff) {
+    var ci = document.getElementById('sc-ci-' + driver);
+    if(ci) { ci.focus(); ci.select(); }
+  }
 }
 
 function saveAllOverrides() {
