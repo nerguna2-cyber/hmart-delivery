@@ -6123,22 +6123,22 @@ function printAttendance() {
     var bg = idx % 2 === 0 ? '#fff' : '#F9FAFB';
 
     if(isDayOff) {
-      return '<tr style="background:' + bg + '">' +
-        '<td style="padding:10px 12px;border:1px solid #D1D5DB;font-size:14px;font-weight:700;color:#9CA3AF;width:90px">'+d+'</td>' +
-        '<td style="border:1px solid #D1D5DB;padding:4px;text-align:center;color:#9CA3AF;font-size:13px">Day Off</td>' +
-        '<td style="border:1px solid #D1D5DB;padding:10px;width:60px;text-align:center;font-size:13px;color:#9CA3AF">-</td>' +
-        '<td style="border:1px solid #D1D5DB;padding:10px;width:60px;text-align:center;font-size:13px;color:#9CA3AF">-</td>' +
-        '<td style="border:1px solid #D1D5DB;padding:10px;width:60px;text-align:center;font-size:13px;color:#9CA3AF">-</td>' +
+      return '<tr style="background:' + bg + ';opacity:0.5">' +
+        '<td style="padding:8px 10px;border:1px solid #D1D5DB;font-size:14px;font-weight:700;color:#9CA3AF;width:110px">' + d + '</td>' +
+        '<td style="border:1px solid #D1D5DB;padding:4px;height:48px;background:#F9FAFB"></td>' +
+        '<td style="border:1px solid #D1D5DB;padding:8px;text-align:center;color:#9CA3AF">-</td>' +
+        '<td style="border:1px solid #D1D5DB;padding:8px;text-align:center;color:#9CA3AF">-</td>' +
+        '<td style="border:1px solid #D1D5DB;padding:8px;text-align:center;color:#9CA3AF">-</td>' +
       '</tr>';
     }
 
     if(!sc.dutyon) {
       return '<tr style="background:' + bg + '">' +
-        '<td style="padding:10px 12px;border:1px solid #D1D5DB;font-size:14px;font-weight:700">'+d+'</td>' +
-        '<td style="border:1px solid #D1D5DB;padding:4px;text-align:center;color:#9CA3AF;font-size:13px">No schedule</td>' +
-        '<td style="border:1px solid #D1D5DB;padding:10px;width:60px;text-align:center">-</td>' +
-        '<td style="border:1px solid #D1D5DB;padding:10px;width:60px;text-align:center">-</td>' +
-        '<td style="border:1px solid #D1D5DB;padding:10px;width:60px;text-align:center">-</td>' +
+        '<td style="padding:8px 10px;border:1px solid #D1D5DB;font-size:14px;font-weight:700;width:110px">' + d + '</td>' +
+        '<td style="border:1px solid #D1D5DB;padding:4px;height:48px;background:#F9FAFB"></td>' +
+        '<td style="border:1px solid #D1D5DB;padding:8px;text-align:center;color:#9CA3AF">-</td>' +
+        '<td style="border:1px solid #D1D5DB;padding:8px;text-align:center;color:#9CA3AF">-</td>' +
+        '<td style="border:1px solid #D1D5DB;padding:8px;text-align:center;color:#9CA3AF">-</td>' +
       '</tr>';
     }
 
@@ -6217,11 +6217,6 @@ function printAttendance() {
       '</div>' +
     '</div>' +
     '<table>' + hourHeader + '<tbody>' + rowsHtml + '</tbody></table>' +
-    '<div style="margin-top:16px;border-top:1px solid #E2E8F0;padding-top:10px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">' +
-      DRIVERS.filter(function(d){ return getDriverSched(d).notes; }).map(function(d) {
-        return '<div style="font-size:12px"><strong>' + d + ':</strong> ' + getDriverSched(d).notes + '</div>';
-      }).join('') +
-    '</div>' +
     '<script>window.onload=function(){window.print();}<\/script>' +
     '</body></html>');
   printWin.document.close();
