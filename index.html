@@ -3576,10 +3576,9 @@ async function loadVehicleHistory() {
     if(vname && rVeh && rVeh.indexOf(vname.split(' ')[0]) > -1) return true;
     return false;
   }
-  var days  = rangeEl ? rangeEl.value : '30';
 
   var rangeEl = document.getElementById('av-hist-range');
-  var days  = rangeEl ? rangeEl.value : '30';
+  var days = rangeEl ? rangeEl.value : '30';
 
   var cutoff = '';
   if(days !== 'all') {
@@ -5248,7 +5247,7 @@ function switchAdmin(t) {
   document.querySelectorAll('.admin-screen').forEach(function(s){s.classList.remove('active');});
   document.getElementById('admin-'+t).classList.add('active');
   if(t==='report'){
-    var today=new Date().toISOString().slice(0,10);
+    var today=new Date().toLocaleDateString('en-CA');
     var ds=document.getElementById('report-date-start');
     var de=document.getElementById('report-date-end');
     if(ds&&!ds.value) ds.value=today;
@@ -5399,9 +5398,9 @@ async function renderAdminScheduleOverview() {
   if(!el) return;
   el.innerHTML = '<div class="empty">Loading...</div>';
   var dateEl = document.getElementById('admin-sched-date');
-  if(dateEl && !dateEl.value) dateEl.value = new Date().toISOString().slice(0,10);
-  var selDate = (dateEl && dateEl.value) || new Date().toISOString().slice(0,10);
-  var isToday = selDate === new Date().toISOString().slice(0,10);
+  if(dateEl && !dateEl.value) dateEl.value = new Date().toLocaleDateString('en-CA');
+  var selDate = (dateEl && dateEl.value) || new Date().toLocaleDateString('en-CA');
+  var isToday = selDate === new Date().toLocaleDateString('en-CA');
   var nowMins = isToday ? new Date().getHours()*60 + new Date().getMinutes() : -1;
   var breakLogsForDate = {};
   try {
@@ -5540,11 +5539,23 @@ async function clearTodayData() {
 
 // ---- REPORT ----
 function setReportRange(range) {
-  var now=new Date(); var today=now.toISOString().slice(0,10);
-  var ds=document.getElementById('report-date-start'); var de=document.getElementById('report-date-end');
-  if(range==='today'){ds.value=today;de.value=today;}
-  else if(range==='week'){var day=now.getDay();var mon=new Date(now);mon.setDate(now.getDate()-(day===0?6:day-1));ds.value=mon.toISOString().slice(0,10);de.value=today;}
-  else if(range==='month'){ds.value=today.slice(0,7)+'-01';de.value=today;}
+  var now = new Date();
+  // Use local date (not UTC) to handle timezone correctly
+  var today = now.toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
+  var ds = document.getElementById('report-date-start');
+  var de = document.getElementById('report-date-end');
+  if(range === 'today') {
+    ds.value = today; de.value = today;
+  } else if(range === 'week') {
+    var day = now.getDay();
+    var mon = new Date(now);
+    mon.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
+    ds.value = mon.toLocaleDateString('en-CA');
+    de.value = today;
+  } else if(range === 'month') {
+    ds.value = today.slice(0,7) + '-01';
+    de.value = today;
+  }
 }
 
 async function loadReport() {
@@ -5759,7 +5770,7 @@ var actualClockouts = {};
   try {
     var ds = localStorage.getItem('hmart_driver_schedules');
     if(ds) driverSchedules = JSON.parse(ds);
-    var today = new Date().toISOString().slice(0,10);
+    var today = new Date().toLocaleDateString('en-CA');
     var ab = localStorage.getItem('hmart_actual_breaks_' + today);
     if(ab) actualBreaks = JSON.parse(ab);
     var ac = localStorage.getItem('hmart_actual_dutyoffs_' + today);
@@ -6069,7 +6080,7 @@ function saveActualTimes() {
   var dutyoff = document.getElementById('att-actual-dutyoff').value;
   if(!driver) { toast('toast-att', 'Select a driver', false); return; }
   if(!breakT && !dutyoff) { toast('toast-att', 'Enter at least one time', false); return; }
-  var attDate = document.getElementById('att-date') ? document.getElementById('att-date').value : new Date().toISOString().slice(0,10);
+  var attDate = document.getElementById('att-date') ? document.getElementById('att-date').value : new Date().toLocaleDateString('en-CA');
   if(breakT) {
     actualBreaks[driver] = breakT;
     try { localStorage.setItem('hmart_actual_breaks_' + attDate, JSON.stringify(actualBreaks)); } catch(e) {}
@@ -6099,7 +6110,7 @@ function loadAttendance() {
   loadBreakLog();
   renderGantt();
   var dateEl = document.getElementById('att-date');
-  var selDate = new Date().toISOString().slice(0,10);
+  var selDate = new Date().toLocaleDateString('en-CA');
   if(dateEl) {
     if(!dateEl.value) dateEl.value = selDate;
     selDate = dateEl.value;
@@ -6111,7 +6122,7 @@ function loadAttendance() {
     } catch(e) { actualBreaks = {}; actualClockouts = {}; }
   }
 
-  var isToday = (selDate === new Date().toISOString().slice(0,10));
+  var isToday = (selDate === new Date().toLocaleDateString('en-CA'));
   var now = new Date();
   var nowMins = now.getHours()*60 + now.getMinutes();
 
