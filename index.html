@@ -3971,6 +3971,165 @@ function renderGantt() {
   var nowH    = new Date().getHours();
   var nowM    = new Date().getMinutes();
   var nowMins = nowH*60 + nowM;
+
+  // Dynamic range: 06~23 default, expand if any driver has earlier/later schedule
+  var minH = 6, maxH = 23;
+  DRIVERS.forEach(function(d) {
+    var sc = getDriverSched(d);
+    if(sc.dutyon)  minH = Math.min(minH, parseInt(sc.dutyon.split(':')[0]));
+    if(sc.dutyoff) maxH = Math.max(maxH, parseInt(sc.dutyoff.split(':')[0]) + 1);
+  });
+  minH = Math.max(0,  minH - 1);
+  maxH = Math.min(24, maxH + 1);
+  var totalH = maxH - minH;
+
+  var hours = [];
+  for(var h = minH; h <= maxH; h++) hours.push(h);
+
+  var nowPct = Math.min(100, Math.max(0, ((nowMins - minH*60) / (totalH*60)) * 100));
+  var isNowInRange = nowMins >= minH*60 && nowMins <= maxH*60;
+
+  // AM/PM background zones
+  var amStart = Math.max(0, ((6  - minH) / totalH) * 100);
+  var pmStart = Math.max(0, ((12 - minH) / totalH) * 100);
+  var pmEnd   = Math.min(100, ((18 - minH) / totalH) * 100);
+
+  var rowsHtml = DRIVERS.map(function(d, idx) {
+    var sc       = getDriverSched(d);
+    var isDayOff = sc.dayOff;
+    var actualB  = actualBreaks[d] || null;
+    var remark   = ''; // from today's checklist — shown inline
+
+    if(isDayOff) {
+      return '<div style="display:flex;align-items:center;gap:0;margin-bottom:3px;opacity:0.4;border-bottom:1px solid #E5E7EB">' +
+        '<div style="width:90px;font-size:13px;font-weight:700;color:#9CA3AF;flex-shrink:0;padding:8px 10px 8px 0">' + d + '<br><span style="font-size:10px;font-weight:400">Day Off</span></div>' +
+        '<div style="flex:1;height:40px;background:#F3F4F6;border-radius:4px;display:flex;align-items:center;justify-content:center"><span style="font-size:11px;color:#9CA3AF">─</span></div>' +
+      '</div>';
+    }
+    if(!sc.dutyon) {
+      return '<div style="display:flex;align-items:center;gap:0;margin-bottom:3px;border-bottom:1px solid #E5E7EB">' +
+        '<div style="width:90px;font-size:13px;font-weight:700;color:#374151;flex-shrink:0;padding:8px 10px 8px 0">' + d + '<br><span style="font-size:10px;font-weight:400;color:#9CA3AF">No schedule</span></div>' +
+        '<div style="flex:1;height:40px;background:#F9FAFB;border-radius:4px;border:1px dashed #D1D5DB"></div>' +
+      '</div>';
+    }
+
+    var onH    = parseInt(sc.dutyon.split(':')[0]);
+    var onM    = parseInt(sc.dutyon.split(':')[1]||0);
+    var offH   = sc.dutyoff ? parseInt(sc.dutyoff.split(':')[0])   : onH+9;
+    var offM   = sc.dutyoff ? parseInt(sc.dutyoff.split(':')[1]||0): 0;
+    var brkTime = actualB || sc.breakStart || '';
+    var brkH   = brkTime ? parseInt(brkTime.split(':')[0]) : onH+4;
+    var brkM   = brkTime ? parseInt(brkTime.split(':')[1]||0) : 0;
+
+    var onMins  = onH*60+onM;
+    var offMins = offH*60+offM;
+    var brkMins2 = brkH*60+brkM;
+
+    var onPct  = Math.max(0,   ((onMins  - minH*60) / (totalH*60)) * 100);
+    var offPct = Math.min(100, ((offMins - minH*60) / (totalH*60)) * 100);
+    var brkPct = Math.max(0,   Math.min(100, ((brkMins2 - minH*60) / (totalH*60)) * 100));
+    var brkWPct = (60 / (totalH*60)) * 100;
+
+    var isOffDuty = nowMins >= offMins;
+    var isOnBreak = !isOffDuty && nowMins >= brkMins2 && nowMins < brkMins2+60;
+    var isOnDuty  = !isOffDuty && !isOnBreak && nowMins >= onMins;
+
+    var dot       = isOffDuty ? '⚫' : isOnBreak ? '🟡' : isOnDuty ? '🟢' : '⚪';
+    var nameColor = isOffDuty ? '#9CA3AF' : '#111827';
+    var barOpacity = isOffDuty ? '0.3' : '1';
+
+    // Out-of-range label (if start/end outside chart range)
+    var earlyLabel = onMins < minH*60 ? sc.dutyon : '';
+    var lateLabel  = offMins > maxH*60 ? sc.dutyoff : '';
+
+    var sc_notes = sc.notes || '';
+
+    return '<div style="display:flex;align-items:center;gap:0;margin-bottom:3px;border-bottom:1px solid #D1D5DB">' +
+      // Name + status + remark
+      '<div style="width:90px;flex-shrink:0;padding:6px 10px 6px 0">' +
+        '<div style="font-size:13px;font-weight:800;color:' + nameColor + '">' + dot + ' ' + d + '</div>' +
+        (sc_notes ? '<div style="font-size:10px;color:#6B7280;line-height:1.3;margin-top:1px">' + sc_notes + '</div>' : '') +
+      '</div>' +
+      // Bar area
+      '<div style="flex:1;height:44px;position:relative;border-radius:4px;overflow:hidden;background:#F3F4F6">' +
+        // AM zone tint
+        '<div style="position:absolute;left:0;top:0;bottom:0;width:' + pmStart + '%;background:rgba(219,234,254,0.3)"></div>' +
+        // PM zone tint
+        '<div style="position:absolute;left:' + pmStart + '%;top:0;bottom:0;width:' + (pmEnd-pmStart) + '%;background:rgba(254,243,199,0.3)"></div>' +
+        // Work bar
+        (earlyLabel ? '' :
+          '<div style="position:absolute;left:' + onPct + '%;width:' + (offPct-onPct) + '%;top:6px;bottom:6px;background:#1E40AF;border-radius:3px;opacity:' + barOpacity + '"></div>'
+        ) +
+        // Break bar — striped pattern
+        (brkTime ?
+          '<div style="position:absolute;left:' + brkPct + '%;width:' + brkWPct + '%;top:6px;bottom:6px;background:repeating-linear-gradient(45deg,#F59E0B,#F59E0B 4px,#FCD34D 4px,#FCD34D 8px);border-radius:2px;opacity:' + barOpacity + '"></div>'
+        : '') +
+        // Time labels inside bar
+        (earlyLabel ?
+          '<div style="position:absolute;left:4px;top:50%;transform:translateY(-50%);font-size:10px;font-weight:700;color:#6B7280">← ' + sc.dutyon + '</div>' :
+          '<div style="position:absolute;left:calc(' + onPct + '% + 4px);top:50%;transform:translateY(-50%);font-size:10px;font-weight:700;color:#fff;white-space:nowrap">' + sc.dutyon + '</div>'
+        ) +
+        (lateLabel ?
+          '<div style="position:absolute;right:4px;top:50%;transform:translateY(-50%);font-size:10px;font-weight:700;color:#6B7280">' + sc.dutyoff + ' →</div>' :
+          '<div style="position:absolute;left:calc(' + offPct + '% - 4px);top:50%;transform:translateY(-50%) translateX(-100%);font-size:10px;font-weight:700;color:#fff;white-space:nowrap">' + sc.dutyoff + '</div>'
+        ) +
+        // Break time label
+        (brkTime ? '<div style="position:absolute;left:calc(' + (brkPct+brkWPct/2) + '% );top:2px;transform:translateX(-50%);font-size:9px;font-weight:700;color:#92400E;white-space:nowrap">' + brkTime + '</div>' : '') +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  // Hour header
+  var headerHtml = '<div style="display:flex;align-items:center;gap:0;margin-bottom:6px">' +
+    '<div style="width:90px;flex-shrink:0"></div>' +
+    '<div style="flex:1;display:flex;border-bottom:2px solid #374151">' +
+      hours.map(function(h, i) {
+        var isMidnight = h === 12;
+        return '<div style="flex:1;text-align:center;font-size:11px;font-weight:700;color:' + (isMidnight?'#DC2626':'#374151') + ';padding-bottom:4px;border-left:' + (i===0?'none':'1px solid #9CA3AF') + '">' +
+          (h < 10 ? '0'+h : h === 12 ? '<span style="color:#DC2626">12</span>' : h) +
+        '</div>';
+      }).join('') +
+    '</div>' +
+  '</div>';
+
+  // Grid lines overlay
+  var gridLines = '<div style="position:absolute;top:0;left:90px;right:0;bottom:0;display:flex;pointer-events:none;z-index:1">' +
+    hours.map(function(h, i) {
+      var isMidnight = h === 12;
+      return '<div style="flex:1;border-left:' + (i===0?'2px solid #6B7280':isMidnight?'2px solid #FCA5A5':'1px solid #D1D5DB') + '"></div>';
+    }).join('') +
+  '</div>';
+
+  // Now line
+  var nowLine = isNowInRange ? '<div style="position:absolute;top:0;bottom:0;left:calc(90px + ' + nowPct + '%);width:2px;background:#DC2626;z-index:10;pointer-events:none">' +
+    '<div style="position:absolute;top:-20px;left:50%;transform:translateX(-50%);background:#DC2626;color:#fff;font-size:10px;font-weight:800;padding:2px 6px;border-radius:4px;white-space:nowrap">' +
+      (nowH<10?'0'+nowH:nowH)+':'+(nowM<10?'0'+nowM:nowM) +
+    '</div>' +
+  '</div>' : '';
+
+  el.innerHTML =
+    '<div style="padding-top:24px">' +
+      headerHtml +
+      '<div style="position:relative">' +
+        gridLines +
+        rowsHtml +
+        nowLine +
+      '</div>' +
+    '</div>' +
+    '<div style="display:flex;gap:16px;margin-top:12px;padding-top:8px;border-top:1px solid #E5E7EB;font-size:11px;color:#6B7280;flex-wrap:wrap">' +
+      '<span><span style="display:inline-block;width:16px;height:10px;background:#1E40AF;border-radius:2px;vertical-align:middle"></span> On Duty</span>' +
+      '<span><span style="display:inline-block;width:16px;height:10px;background:repeating-linear-gradient(45deg,#F59E0B,#F59E0B 4px,#FCD34D 4px,#FCD34D 8px);border-radius:2px;vertical-align:middle"></span> Break</span>' +
+      '<span style="color:#DC2626;font-weight:700">| Now</span>' +
+      '<span>🟢 On Duty &nbsp; 🟡 On Break &nbsp; ⚫ Off Duty &nbsp; ⚪ Not started</span>' +
+      (isNowInRange ? '' : '<span style="color:#F59E0B">⚠ Current time outside chart range</span>') +
+    '</div>';
+}
+  var el = document.getElementById('att-gantt');
+  if(!el) return;
+
+  var nowH    = new Date().getHours();
+  var nowM    = new Date().getMinutes();
+  var nowMins = nowH*60 + nowM;
   var startH  = 6, endH = 23, totalH = endH - startH;
   var hours   = [];
   for(var h = startH; h <= endH; h++) hours.push(h);
@@ -4044,16 +4203,6 @@ function renderGantt() {
       '<div style="position:absolute;top:-20px;bottom:0;left:calc(80px + ' + nowPct + '%);width:2px;background:#DC2626;z-index:10;pointer-events:none">' +
         '<div style="position:absolute;top:0;left:50%;transform:translateX(-50%);background:#DC2626;color:#fff;font-size:9px;font-weight:800;padding:2px 5px;border-radius:3px;white-space:nowrap">' +
           (nowH<10?'0'+nowH:nowH)+':'+(nowM<10?'0'+nowM:nowM) +
-        '</div>' +
-      '</div>' +
-    '</div>' +
-    '<div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap;font-size:11px;color:#64748B">' +
-      '<span>■ <span style="color:#1F4E79;font-weight:600">On Duty</span></span>' +
-      '<span>■ <span style="color:#F59E0B;font-weight:600">Break</span></span>' +
-      '<span>| <span style="color:#DC2626;font-weight:600">Now</span></span>' +
-      '<span>🟢 Working &nbsp;🟡 Break &nbsp;⚫ Off</span>' +
-    '</div>';
-}
 
 // ---- DRIVER BREAK TIME ----
 function getDriverStatusLabel(d) {
