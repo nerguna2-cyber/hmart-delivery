@@ -5797,22 +5797,31 @@ function buildAttDriverTable() {
   var rows = DRIVERS.map(function(d, idx) {
     var sc = getDriverSched(d);
     var isDayOff = !!(sc.dayOff);
-    var nextId = DRIVERS[idx+1] ? 'sc-ci-' + DRIVERS[idx+1] : 'att-save-btn';
 
-    // Display stored HH:MM as just the hour number for input
+    // Find next non-dayoff driver for Enter navigation
+    var nextId = 'att-save-btn';
+    for(var ni = idx+1; ni < DRIVERS.length; ni++) {
+      var nsc = getDriverSched(DRIVERS[ni]);
+      if(!nsc.dayOff) { nextId = 'sc-ci-' + DRIVERS[ni]; break; }
+    }
+
     function toHourNum(hhmm) {
       if(!hhmm) return '';
       return String(parseInt(hhmm.split(':')[0]));
     }
 
-    var baseInput = 'width:52px;padding:7px 6px;border:1.5px solid #93C5FD;border-radius:7px;font-size:16px;font-weight:700;text-align:center;-moz-appearance:textfield;background:#fff';
+    var baseInput  = 'width:52px;padding:7px 6px;border:1.5px solid #93C5FD;border-radius:7px;font-size:16px;font-weight:700;text-align:center;-moz-appearance:textfield;background:#fff';
     var breakInput = 'width:52px;padding:7px 6px;border:1.5px solid #FDE68A;border-radius:7px;font-size:16px;font-weight:700;text-align:center;-moz-appearance:textfield;background:#FFFBEB';
     var outInput   = 'width:52px;padding:7px 6px;border:1.5px solid #E2E8F0;border-radius:7px;font-size:16px;font-weight:700;text-align:center;-moz-appearance:textfield;background:#fff';
-    var dis = isDayOff ? 'disabled' : '';
-    var rowBg = isDayOff ? 'background:#FFF5F5;opacity:0.8' : '';
+    var dis    = isDayOff ? 'disabled' : '';
+    var rowBg  = isDayOff ? 'background:#FFF5F5;opacity:0.7' : '';
 
     return '<tr style="' + rowBg + '">' +
-      '<td style="padding:8px 10px;border:1px solid #E2E8F0;font-weight:700;font-size:13px;white-space:nowrap">' + d + '</td>' +
+      // Name cell — notes shown right below name in red
+      '<td style="padding:8px 10px;border:1px solid #E2E8F0;font-weight:700;font-size:13px;white-space:nowrap;min-width:90px">' +
+        d +
+        (sc.notes ? '<div style="font-size:10px;color:#DC2626;font-weight:600;margin-top:2px">' + sc.notes + '</div>' : '') +
+      '</td>' +
       '<td style="padding:6px 10px;border:1px solid #E2E8F0;text-align:center">' +
         '<input type="number" id="sc-ci-' + d + '" value="' + toHourNum(sc.dutyon) + '" min="0" max="23" placeholder="H" inputmode="numeric" ' + dis +
           ' oninput="autoFillSchedule(\'' + d + '\')"' +
