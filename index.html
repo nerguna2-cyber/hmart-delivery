@@ -1520,7 +1520,6 @@ function showNetworkStatus(msg, color) {
           <div id="att-list"><div class="empty">Loading...</div></div>
         </div>
       </div>
-      </div>
     </div>
 
     <div id="tab-checklist" class="off-screen">
@@ -1732,9 +1731,9 @@ function showNetworkStatus(msg, color) {
           <div id="av-kpi" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px"></div>
           <div id="av-alerts" style="margin-bottom:16px"></div>
           <div style="display:flex;gap:0;border-bottom:2px solid #E2E8F0;margin-bottom:16px">
-            <button onclick="switchVehTab('maintenance')" id="vt-maintenance" class="veh-tab active-vt">🔧 Maintenance</button>
-            <button onclick="switchVehTab('fuel')"        id="vt-fuel"        class="veh-tab">⛽ Fuel History</button>
-            <button onclick="switchVehTab('overview')"    id="vt-overview"    class="veh-tab">📊 Overview</button>
+            <button onclick="switchVehTab('maintenance')"  class="veh-tab active-vt">🔧 Maintenance</button>
+            <button onclick="switchVehTab('fuel')"                class="veh-tab">⛽ Fuel</button>
+            <button onclick="switchVehTab('overview')"        class="veh-tab">📊 Overview</button>
           </div>
           <div id="avt-maintenance">
             <div class="admin-card" style="margin-bottom:12px">
@@ -1814,9 +1813,9 @@ function showNetworkStatus(msg, color) {
 
           <!-- Tabs: Maintenance / Fuel / Overview -->
           <div style="display:flex;gap:0;border-bottom:2px solid #E2E8F0;margin-bottom:16px">
-            <button onclick="switchVehTab('maintenance')" id="vt-maintenance" class="veh-tab active-vt">🔧 Maintenance</button>
-            <button onclick="switchVehTab('fuel')"        id="vt-fuel"        class="veh-tab">⛽ Fuel History</button>
-            <button onclick="switchVehTab('overview')"    id="vt-overview"    class="veh-tab">📊 Overview</button>
+            <button onclick="switchVehTab('maintenance')"  class="veh-tab active-vt">🔧 Maintenance</button>
+            <button onclick="switchVehTab('fuel')"                class="veh-tab">⛽ Fuel History</button>
+            <button onclick="switchVehTab('overview')"        class="veh-tab">📊 Overview</button>
           </div>
 
           <!-- MAINTENANCE TAB -->
@@ -6156,22 +6155,31 @@ function printAttendance() {
     var brkPct = Math.max(0,Math.min(100,((brkH-startH)/totalH)*100));
     var brkWPct = (1/totalH)*100;
 
-    var barHtml = '<td style="border:1px solid #D1D5DB;padding:4px;position:relative;height:44px">' +
-      '<div style="position:relative;height:100%;background:#F3F4F6;border-radius:3px;overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact">' +
-        '<div style="position:absolute;left:' + onPct + '%;width:' + (offPct-onPct) + '%;height:100%;background:#1E40AF !important;border-radius:2px;-webkit-print-color-adjust:exact;print-color-adjust:exact"></div>' +
-        '<div style="position:absolute;left:' + brkPct + '%;width:' + brkWPct + '%;height:100%;background:#F59E0B !important;-webkit-print-color-adjust:exact;print-color-adjust:exact"></div>' +
-        '<div style="position:absolute;top:50%;left:calc(' + nowPct + '% - 1px);width:2px;height:100%;background:#DC2626 !important;transform:translateY(-50%);-webkit-print-color-adjust:exact;print-color-adjust:exact"></div>' +
-        '<span style="position:absolute;left:calc(' + onPct + '% + 3px);top:50%;transform:translateY(-50%);font-size:12px;font-weight:700;color:#fff">' + sc.dutyon + '</span>' +
-        '<span style="position:absolute;right:calc(' + (100-offPct) + '% + 3px);top:50%;transform:translateY(-50%);font-size:12px;font-weight:700;color:#fff">' + sc.dutyoff + '</span>' +
+    var barHtml = '<td style="border:1px solid #D1D5DB;padding:4px;height:48px;position:relative">' +
+      '<div style="position:relative;height:100%;background:#fff;border:1px solid #D1D5DB;border-radius:3px;overflow:hidden">' +
+        // Work bar — outline only, no fill
+        '<div style="position:absolute;left:' + onPct + '%;width:' + (offPct-onPct) + '%;top:4px;bottom:4px;border:2px solid #1E40AF;border-radius:2px;box-sizing:border-box"></div>' +
+        // Break bar — light diagonal hatching
+        '<div style="position:absolute;left:' + brkPct + '%;width:' + brkWPct + '%;top:4px;bottom:4px;background:repeating-linear-gradient(45deg,#F59E0B,#F59E0B 2px,#FEF3C7 2px,#FEF3C7 6px);border-radius:2px;-webkit-print-color-adjust:exact;print-color-adjust:exact"></div>' +
+        // Now line
+        '<div style="position:absolute;top:0;bottom:0;left:' + nowPct + '%;width:1.5px;background:#DC2626;-webkit-print-color-adjust:exact;print-color-adjust:exact"></div>' +
+        // Time labels
+        '<span style="position:absolute;left:calc(' + onPct + '% + 4px);top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;color:#1E40AF">' + sc.dutyon + '</span>' +
+        '<span style="position:absolute;right:calc(' + (100-offPct) + '% + 4px);top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;color:#1E40AF">' + sc.dutyoff + '</span>' +
+        // Break time label
+        '<span style="position:absolute;left:calc(' + (brkPct+brkWPct/2) + '% );bottom:2px;transform:translateX(-50%);font-size:9px;font-weight:700;color:#92400E">' + (actualB||sc.breakStart||'') + '</span>' +
       '</div>' +
     '</td>';
 
     return '<tr style="background:' + bg + '">' +
-      '<td style="padding:10px 12px;border:1px solid #D1D5DB;font-size:14px;font-weight:700">'+d+'</td>' +
+      '<td style="border:1px solid #D1D5DB;padding:8px 10px;width:110px">' +
+        '<div style="font-size:14px;font-weight:800;color:#111">' + d + '</div>' +
+        (sc.notes ? '<div style="font-size:10px;color:#6B7280;margin-top:2px">' + sc.notes + '</div>' : '') +
+      '</td>' +
       barHtml +
-      '<td style="border:1px solid #D1D5DB;padding:10px;text-align:center;font-size:14px;font-weight:600;width:60px">' + sc.dutyon + '</td>' +
-      '<td style="border:1px solid #D1D5DB;padding:10px;text-align:center;font-size:14px;width:60px;background:#FFFBEB;font-weight:600">' + (actualB||sc.breakStart||'-') + '</td>' +
-      '<td style="border:1px solid #D1D5DB;padding:10px;text-align:center;font-size:14px;font-weight:600;width:60px">' + sc.dutyoff + '</td>' +
+      '<td style="border:1px solid #D1D5DB;padding:8px;text-align:center;font-size:14px;font-weight:700;width:55px">' + sc.dutyon + '</td>' +
+      '<td style="border:1px solid #D1D5DB;padding:8px;text-align:center;font-size:14px;width:55px;background:#FFFBEB;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-weight:600;color:#92400E">' + (actualB||sc.breakStart||'-') + '</td>' +
+      '<td style="border:1px solid #D1D5DB;padding:8px;text-align:center;font-size:14px;font-weight:700;width:55px">' + sc.dutyoff + '</td>' +
     '</tr>';
   }).join('');
 
