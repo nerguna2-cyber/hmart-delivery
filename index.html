@@ -5819,6 +5819,7 @@ var driverSchedules = {};
 var actualBreaks = {};
 var actualClockouts = {};
 
+// Load from localStorage first (instant)
 (function(){
   try {
     var ds = localStorage.getItem('hmart_driver_schedules');
@@ -5828,9 +5829,25 @@ var actualClockouts = {};
     if(ab) actualBreaks = JSON.parse(ab);
     var ac = localStorage.getItem('hmart_actual_dutyoffs_' + today);
     if(ac) actualClockouts = JSON.parse(ac);
-    var ob = localStorage.getItem('hmart_overtime_balance');
   } catch(e) {}
 })();
+
+// Then load from Firebase (sync across devices)
+window.addEventListener('fb-ready', function() {
+  window._fb.ref('hmart/settings/driverSchedules').once('value').then(function(snap) {
+    var fbSchedules = snap.val();
+    if(fbSchedules && Object.keys(fbSchedules).length > 0) {
+      driverSchedules = fbSchedules;
+      try { localStorage.setItem('hmart_driver_schedules', JSON.stringify(driverSchedules)); } catch(e) {}
+      // Refresh attendance UI if open
+      var attEl = document.getElementById('tab-attendance');
+      if(attEl && attEl.classList.contains('active')) {
+        buildAttDriverTable();
+        renderGantt();
+      }
+    }
+  }).catch(function(){});
+}, { once: true });
 
 function getDriverSched(driver) {
   // Return empty defaults — don't assume 08:00 if not scheduled
@@ -5890,6 +5907,10 @@ function saveNoteInline(driver) {
   if(!driverSchedules[driver]) driverSchedules[driver] = {};
   driverSchedules[driver].notes = el.value.trim();
   try { localStorage.setItem('hmart_driver_schedules', JSON.stringify(driverSchedules)); } catch(e) {}
+  // Sync to Firebase
+  if(window._fb) {
+    window._fb.ref('hmart/settings/driverSchedules/' + driver + '/notes').set(el.value.trim()).catch(function(){});
+  }
 }
 
 function attNavNext(currentDriver) {
@@ -6075,17 +6096,33 @@ function saveAllOverrides() {
     }
 
     driverSchedules[d] = {
-      dutyon:    toHHMM(ciEl),
+      dutyon:     toHHMM(ciEl),
       breakStart: toHHMM(bsEl),
-      dutyoff:   toHHMM(coEl),
+      dutyoff:    toHHMM(coEl),
       notes:      ntEl ? ntEl.value || '' : '',
       dayOff:     doCb ? doCb.checked : false
     };
     changed++;
   });
+
+  // Save to localStorage (fast, local)
   try { localStorage.setItem('hmart_driver_schedules', JSON.stringify(driverSchedules)); } catch(e) {}
-  toast('toast-att', '✅ ' + changed + ' driver schedules saved!', true);
-  renderGantt(); // Just refresh the gantt, don't rebuild the whole table
+
+  // Save to Firebase (sync across devices)
+  if(window._fb) {
+    window._fb.ref('hmart/settings/driverSchedules').set(driverSchedules)
+      .then(function() {
+        toast('toast-att', '✅ Schedules saved & synced!', true);
+      })
+      .catch(function(err) {
+        toast('toast-att', '✅ Saved locally (sync failed)', true);
+        console.warn('Firebase schedule save failed:', err);
+      });
+  } else {
+    toast('toast-att', '✅ ' + changed + ' schedules saved!', true);
+  }
+
+  renderGantt();
 }
 
 async function loadBreakLog() {
