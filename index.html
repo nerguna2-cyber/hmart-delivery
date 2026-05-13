@@ -5833,21 +5833,17 @@ var actualClockouts = {};
 })();
 
 // Then load from Firebase (sync across devices)
-window.addEventListener('fb-ready', function() {
-  window._fb.ref('hmart/settings/driverSchedules').once('value').then(function(snap) {
+async function loadSchedulesFromFirebase() {
+  try {
+    if(!window._fb) return;
+    var snap = await window._fb.ref('hmart/settings/driverSchedules').once('value');
     var fbSchedules = snap.val();
     if(fbSchedules && Object.keys(fbSchedules).length > 0) {
       driverSchedules = fbSchedules;
       try { localStorage.setItem('hmart_driver_schedules', JSON.stringify(driverSchedules)); } catch(e) {}
-      // Refresh attendance UI if open
-      var attEl = document.getElementById('tab-attendance');
-      if(attEl && attEl.classList.contains('active')) {
-        buildAttDriverTable();
-        renderGantt();
-      }
     }
-  }).catch(function(){});
-}, { once: true });
+  } catch(e) {}
+}
 
 function getDriverSched(driver) {
   // Return empty defaults — don't assume 08:00 if not scheduled
@@ -6195,7 +6191,9 @@ function calcHours(start, end) {
   } catch(e) { return '-'; }
 }
 
-function loadAttendance() {
+async function loadAttendance() {
+  // Always load latest schedules from Firebase first
+  await loadSchedulesFromFirebase();
   buildAttDriverTable();
   loadBreakLog();
   renderGantt();
